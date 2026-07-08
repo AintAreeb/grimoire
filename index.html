@@ -397,15 +397,14 @@
         }
     </style>
 
-<!-- This links your business card (the manifest) -->
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="./manifest.json">
 
-<!-- This tells the browser the app is ready -->
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
-  }
-</script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      // Use ./ to ensure it finds the service worker in the project folder
+      navigator.serviceWorker.register('./sw.js');
+    }
+  </script>
 
     
 </head>
