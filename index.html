@@ -346,6 +346,19 @@
             letter-spacing: 0.02em;
         }
 
+        /* Bug fix: option lists (mimic role picker, hijack target picker,
+           etc) live in a flex-column container capped with max-height and
+           overflow-y:auto so it can scroll. Flex items default to
+           flex-shrink:1, so once the natural stacked height of all the
+           option buttons exceeded that max-height, the browser was
+           squeezing every button's rendered height down to fit — clipping
+           each button's text top/bottom instead of just letting the
+           container scroll. flex-shrink:0 keeps every option at its full,
+           readable natural size and lets the container scroll normally. */
+        .bartender-modal button {
+            flex-shrink: 0;
+        }
+
         .card-title {
             margin-top: 4px;
             font-size: 11px;
@@ -434,6 +447,7 @@
             }
         }
     </style>
+
 
 
 <link rel="manifest" href="./manifest.json">
@@ -587,7 +601,9 @@ let gameState = {
     p1KnightShields: 0,
     p2KnightShields: 0,
     botLastAttackRecord: null,
+    playerLastAttackRecord: null,
     forcedBotActorName: null,
+    forcedPlayerActorName: null,
     botExecutionSequenceOverride: null,
     unusedBloodbanes: [],
     lastHackerSwapCategory: null
@@ -642,6 +658,91 @@ function applyShieldedImprison(target) {
     } else {
         target.imprisoned = true;
     }
+}
+
+// --- Wasted-move protection ---------------------------------------------
+// Some moves (e.g. trying to execute/imprison a card that's already
+// floored at 1 Blood by a K-Shield) can resolve without changing anything
+// about the opponent's board at all. Previously the acting card's Blood
+// and the player's whole turn were still spent in that case. To prevent
+// that, a snapshot of every card OTHER than the acting card is taken the
+// moment a targeting sequence begins; if nothing about any other card
+// differs once the move fully resolves, the move is treated as a no-op:
+// the acting card is restored to exactly how it was before the attempt,
+// the turn is NOT passed to the bot, and the player gets another try.
+function captureEffectSnapshot(actorId) {
+    let cards = {};
+    [...gameState.p1, ...gameState.p2].forEach(c => {
+        cards[c.id] = { blood: c.blood, imprisoned: c.imprisoned, poisoned: c.poisoned, blockedCounter: c.blockedCounter, maxBlood: c.maxBlood };
+    });
+    let actor = gameState.p1.find(c => c.id === actorId) || gameState.p2.find(c => c.id === actorId);
+    return { cards: cards, botOverride: gameState.botExecutionSequenceOverride, actor: actor ? { ...actor } : null };
+}
+
+function moveHadNoRealEffect(actorId) {
+    let snap = gameState.targetingMode.preEffectSnapshot;
+    if (!snap) return false;
+    if (gameState.botExecutionSequenceOverride !== snap.botOverride) return false;
+    for (const c of [...gameState.p1, ...gameState.p2]) {
+        if (c.id === actorId) continue;
+        let before = snap.cards[c.id];
+        if (!before) continue;
+        if (before.blood !== c.blood || before.imprisoned !== c.imprisoned || before.poisoned !== c.poisoned || before.blockedCounter !== c.blockedCounter || before.maxBlood !== c.maxBlood) return false;
+    }
+    return true;
+}
+
+// Builds the player-side mirror of botLastAttackRecord: looks at which p2
+// (enemy) card actually changed as a result of the move that just
+// resolved, and records it the same way the bot's own turn routine does.
+// This lets bot-side Therapist/Watchmaker/Imam/Princess react to the
+// player's last attack exactly like the player's versions react to the
+// bot's last attack, instead of having no equivalent memory at all.
+function recordPlayerAttack(actorId, baseMove) {
+    let snap = gameState.targetingMode.preEffectSnapshot;
+    if (!snap) return;
+    let changed = gameState.p2.filter(c => {
+        let before = snap.cards[c.id];
+        if (!before) return false;
+        return before.blood !== c.blood || before.imprisoned !== c.imprisoned || before.poisoned !== c.poisoned;
+    });
+    if (changed.length === 0) return;
+    let target = changed.sort((a, b) => {
+        let beforeA = snap.cards[a.id], beforeB = snap.cards[b.id];
+        return (beforeB.blood - b.blood) - (beforeA.blood - a.blood);
+    })[0];
+    let before = snap.cards[target.id];
+    let actor = gameState.p1.find(c => c.id === actorId);
+    let damageDealt = before.blood - target.blood;
+    let isSorcererAction = baseMove === 'sorcerer_hijacked_action' || baseMove === 'sorcerer_hijacked_singer_step2';
+    gameState.playerLastAttackRecord = {
+        actorName: actor ? actor.name : 'Unknown',
+        targetId: target.id,
+        damageDealt: damageDealt,
+        wasImprisoned: !before.imprisoned && target.imprisoned,
+        isDirectKill: damageDealt > 0 && target.blood === 0,
+        wasPoisoned: !before.poisoned && target.poisoned,
+        isSorcererAction: isSorcererAction,
+        isNormalAttack: !['killer_strike', 'dictator_imprison', 'lawyer_lock'].includes(baseMove) && !isSorcererAction
+    };
+}
+
+// Call this instead of "abortTargetingSequence(); finalizeActiveTurn();"
+// at the true end of any targeted move so wasted moves get refunded.
+function concludeTargetedMove(actorId, baseMove) {
+    if (moveHadNoRealEffect(actorId)) {
+        let snap = gameState.targetingMode.preEffectSnapshot;
+        let actor = gameState.p1.find(c => c.id === actorId);
+        if (actor && snap && snap.actor) Object.assign(actor, snap.actor);
+        abortTargetingSequence();
+        writeLog(`⚠️ That move had no effect on the game — Blood and turn refunded. Try another move.`);
+        alert('That move would have had no effect on the opponent (e.g. blocked by K-Shield). Nothing was spent — try another move.');
+        renderScene();
+        return;
+    }
+    recordPlayerAttack(actorId, baseMove);
+    abortTargetingSequence();
+    finalizeActiveTurn();
 }
 
 function setDifficulty(level, btnEl) {
@@ -718,7 +819,9 @@ function initializeMatch() {
     gameState.p1KnightShields = 0;
     gameState.p2KnightShields = 0;
     gameState.botLastAttackRecord = null;
+    gameState.playerLastAttackRecord = null;
     gameState.forcedBotActorName = null;
+    gameState.forcedPlayerActorName = null;
     gameState.botExecutionSequenceOverride = null;
     gameState.lastHackerSwapCategory = null;
     abortTargetingSequence();
@@ -739,6 +842,7 @@ function openTargetingOverlay(actorId, actionKey, overlayInstruction, metadata =
     gameState.targetingMode.actorId = actorId;
     gameState.targetingMode.firstTargetId = null;
     gameState.targetingMode.metadata = metadata;
+    gameState.targetingMode.preEffectSnapshot = captureEffectSnapshot(actorId);
     
     const bar = document.getElementById('targetBar');
     bar.innerText = overlayInstruction;
@@ -753,21 +857,29 @@ function abortTargetingSequence() {
     gameState.targetingMode.actorId = null;
     gameState.targetingMode.firstTargetId = null;
     gameState.targetingMode.metadata = null;
+    gameState.targetingMode.preEffectSnapshot = null;
     document.getElementById('targetBar').style.display = 'none';
     document.getElementById('cancelActionBtn').style.display = 'none';
     renderScene();
 }
 
 function hasValidTargets(card, allies, enemies) {
+    // This function is called for BOTH player cards (allies=p1, enemies=p2)
+    // and bot cards (allies=p2, enemies=p1). The reactive cards below need
+    // to react to the OPPONENT's last attack, so which record to consult
+    // depends on which side `card` is actually on.
+    let isBotSide = gameState.p2.some(c => c.id === card.id);
+    let relevantRecord = isBotSide ? gameState.playerLastAttackRecord : gameState.botLastAttackRecord;
+
     if (card.name === 'Terrorist') {
         let teamLostTwoCount = allies.filter(c => c.blood <= 0).length >= 2;
         let targetsExist = enemies.some(c => c.blood > 1 && !c.isHeroic);
         return teamLostTwoCount && targetsExist;
     }
-    if (card.name === 'Therapist') return gameState.botLastAttackRecord !== null && enemies.some(c => c.blood > 0 && !c.imprisoned);
+    if (card.name === 'Therapist') return relevantRecord !== null && enemies.some(c => c.blood > 0 && !c.imprisoned);
     if (card.name === 'Reporter') return allies.some(c => c.blood > 0);
     if (card.name === 'Actor') return true;
-    if (card.name === 'Princess') return gameState.botLastAttackRecord !== null;
+    if (card.name === 'Princess') return relevantRecord !== null;
 
     let aliveEnemies = enemies.filter(c => c.blood > 0 && !c.imprisoned);
     let aliveAllies = allies.filter(c => c.blood > 0 && !c.imprisoned);
@@ -779,7 +891,7 @@ function hasValidTargets(card, allies, enemies) {
     }
 
     if (card.name === 'Watchmaker') {
-        return gameState.botLastAttackRecord !== null;
+        return relevantRecord !== null;
     }
 
     if (card.name === 'Dementor') {
@@ -789,16 +901,18 @@ function hasValidTargets(card, allies, enemies) {
     if (card.name === 'Knight' && card.blood === 2) return true;
     if (card.name === 'Imam') {
         let targetsExist = false;
-        if (gameState.botLastAttackRecord) {
-            let record = gameState.botLastAttackRecord;
+        if (relevantRecord) {
+            let record = relevantRecord;
             let targetCard = allies.find(c => c.id === record.targetId);
             let isBlockable = record.wasImprisoned || record.isDirectKill || record.isSorcererAction;
             if (targetCard && isBlockable) {
                 targetsExist = true;
             }
         }
-        let entitiesExist = harmfulEnemies.some(c => c.tag === 'Entity');
-        return targetsExist || entitiesExist;
+        // Note: Imam's actual action (executeImamDefensiveBlock) only ever
+        // reacts to a blockable last-attack record — it never attacks an
+        // Entity — so eligibility must depend solely on that record.
+        return targetsExist;
     } 
 
     if (card.name === 'Mage') {
@@ -940,6 +1054,7 @@ function executePrincessSacrifice(actorId) {
     let actor = gameState.p1.find(c => c.id === actorId);
     actor.blood = 0;
     actor.hasActivity = true;
+    if (gameState.forcedPlayerActorName === 'Princess') gameState.forcedPlayerActorName = null;
     writeLog(`👸 Princess sacrifices her sacred soul to nullify the bot's last assault!`);
     if (gameState.botLastAttackRecord) {
         let record = gameState.botLastAttackRecord;
@@ -1132,6 +1247,8 @@ function handleSorcererSelection(actorId, enemyId) {
     let enemy = gameState.p2.find(c => c.id === enemyId);
     if (!actorCard || !enemy) return;
     
+    let preEffectSnapshot = captureEffectSnapshot(actorId);
+
     actorCard.blood = Math.max(0, actorCard.blood - 1);
     actorCard.hasActivity = true;
     actorCard.lastUsedRound = gameState.roundCount;
@@ -1140,6 +1257,7 @@ function handleSorcererSelection(actorId, enemyId) {
     gameState.targetingMode.type = 'sorcerer_hijacked_action';
     gameState.targetingMode.actorId = actorId;
     gameState.targetingMode.metadata = { hijackedCardId: enemy.id, originalType: enemy.name };
+    gameState.targetingMode.preEffectSnapshot = preEffectSnapshot;
     
     const bar = document.getElementById('targetBar');
     bar.innerText = `🔮 HIJACKED ${enemy.name.toUpperCase()} (1 MOVE) - CHOOSE TARGET`;
@@ -1181,6 +1299,7 @@ function handleMechaSelection(actorId, partnerId) {
     gameState.targetingMode.actorId = actorId;
     gameState.targetingMode.firstTargetId = null;
     gameState.targetingMode.metadata = { partnerId: partnerId };
+    gameState.targetingMode.preEffectSnapshot = captureEffectSnapshot(actorId);
     
     const bar = document.getElementById('targetBar');
     bar.innerText = `🤖 FUSED WITH ${partnerCard.name.toUpperCase()}: CHOOSE FIRST TARGET`;
@@ -1399,8 +1518,7 @@ function processSelectedTarget(targetId) {
         
         actorCard.hasActivity = true;
         actorCard.blood = 0;
-        abortTargetingSequence();
-        finalizeActiveTurn();
+        concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
 
@@ -1441,8 +1559,7 @@ function processSelectedTarget(targetId) {
         
         actorCard.hasActivity = true;
         actorCard.blood = 0;
-        abortTargetingSequence();
-        finalizeActiveTurn();
+        concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
 
@@ -1546,14 +1663,26 @@ function processSelectedTarget(targetId) {
             }
         }
         if (actorCard.blood <= 0) actorCard.blood = 0;
-        abortTargetingSequence();
-        finalizeActiveTurn();
+        concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
 
     if (baseMove === 'sorcerer_hijacked_action') {
         let meta = gameState.targetingMode.metadata;
         let originalType = meta.originalType;
+
+        // Bug fix: the real Singer deals 1 damage to EACH of 2 different
+        // targets, not 2 damage to a single target. When Sorcerer hijacks
+        // a Singer, it needs the same 2-target selection instead of
+        // resolving immediately off the first click.
+        if (originalType === 'Singer') {
+            gameState.targetingMode.firstTargetId = targetId;
+            gameState.targetingMode.type = 'sorcerer_hijacked_singer_step2';
+            document.getElementById('targetBar').innerText = '🔮 HIJACKED SINGER: SELECT SECOND TARGET';
+            renderScene();
+            return;
+        }
+
         let hijackedCard = gameState.p1.find(c => c.id === meta.hijackedCardId) || gameState.p2.find(c => c.id === meta.hijackedCardId);
 
         if (originalType === 'Killer') {
@@ -1577,9 +1706,6 @@ function processSelectedTarget(targetId) {
             let dmg = enemy.hasActivity ? 2 : 1;
             applyShieldedDamage(enemy, dmg);
             writeLog(`🔮 Control Sequence: Cop struck ${enemy.name} for ${dmg} damage.`);
-        } else if (originalType === 'Singer') {
-            applyShieldedDamage(enemy, 2);
-            writeLog(`🔮 Control Sequence: Singer dealt 2 damage to ${enemy.name}.`);
         } else if (originalType === 'Hood') {
             applyShieldedDamage(enemy, 1);
             actorCard.blood = Math.min(actorCard.maxBlood === Infinity ? 99 : actorCard.maxBlood, actorCard.blood + 1);
@@ -1596,8 +1722,25 @@ function processSelectedTarget(targetId) {
             }
         }
 
-        abortTargetingSequence();
-        finalizeActiveTurn();
+        concludeTargetedMove(actorCard.id, baseMove);
+        return;
+    }
+
+    if (baseMove === 'sorcerer_hijacked_singer_step2') {
+        let meta = gameState.targetingMode.metadata;
+        let hijackedCard = gameState.p1.find(c => c.id === meta.hijackedCardId) || gameState.p2.find(c => c.id === meta.hijackedCardId);
+        let enemy1 = gameState.p2.find(c => c.id === gameState.targetingMode.firstTargetId);
+
+        applyShieldedDamage(enemy1, 1);
+        if (!(enemy1.blood === 0 && enemy.blood === 1)) applyShieldedDamage(enemy, 1);
+        writeLog(`🔮 Control Sequence: Singer double-struck ${enemy1.name} and ${enemy.name} for 1 damage each.`);
+
+        if (hijackedCard) {
+            applyShieldedDamage(hijackedCard, 1);
+            writeLog(`⚠️ Control Loop Feedback: ${hijackedCard.name} lost 1 blood.`);
+        }
+
+        concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
 
@@ -1610,16 +1753,14 @@ function processSelectedTarget(targetId) {
         ally.imprisoned = false;
         writeLog(`🧙‍♂️ Your Mage sacrificed ${bloodToUse} Blood to resurrect dead bluster ${ally.name}.`);
         if (actorCard.blood <= 0) actorCard.blood = 0;
-        abortTargetingSequence();
-        finalizeActiveTurn();
+        concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
 
     if (baseMove === 'mecha_hood_share_2') {
         ally.blood = Math.min(ally.maxBlood, ally.blood + 2);
         writeLog(`🏹 Mecha+Hood Fusion transferred +2 Blood to revitalized ally ${ally.name}.`);
-        abortTargetingSequence();
-        finalizeActiveTurn();
+        concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
 
@@ -1728,8 +1869,7 @@ function processSelectedTarget(targetId) {
     if (actorCard.blood <= 0) actorCard.blood = 0;
     if (actorCard.isHeroic) actorCard.blood = 0;
     
-    abortTargetingSequence();
-    finalizeActiveTurn();
+    concludeTargetedMove(actorCard.id, baseMove);
 }
 
 function runBartenderAbilityPad(actorId) {
@@ -1770,6 +1910,7 @@ function runBartenderAbilityPad(actorId) {
 }
 
 function finalizeActiveTurn() {
+    gameState.forcedPlayerActorName = null;
     if (gameState.p2KnightShields > 0) gameState.p2KnightShields--;
     gameState.p1.forEach(c => { 
         if (c.mechaCooldown > 0) c.mechaCooldown--; 
@@ -1795,7 +1936,127 @@ function getBotCandidatePool(actor, enemies) {
     return harmful;
 }
 
-// Difficulty-scaled target choice: easy is pure random (legacy behaviour),
+// Applies the REAL effect of the named role, exactly matching the
+// corresponding case in processSelectedTarget (killer_strike, robber_siphon,
+// cop_strike, witch_poison, etc). Shared by bot Actor, Dementor and
+// Sorcerer-hijack so all three "mimic another role" mechanics resolve
+// identically to how the player's versions resolve. Returns true if the
+// role had a usable target/effect this turn, false otherwise.
+function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
+    let enemyPool = getBotCandidatePool(aiActor, gameState.p1);
+    let allyPool = gameState.p2.filter(c => c.id !== aiActor.id && c.blood > 0 && !c.imprisoned);
+
+    if (roleName === 'Killer') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        applyShieldedExecution(t);
+        writeLog(`🎯 ${verbPrefix} executes your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Dictator' || roleName === 'Lawyer') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        applyShieldedImprison(t);
+        writeLog(`⛓️ ${verbPrefix} imprisons your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Jinn') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        t.blockedCounter = 4;
+        writeLog(`🧞 ${verbPrefix} locks down your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Witch') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        t.poisoned = true;
+        applyShieldedDamage(t, 1);
+        writeLog(`🔮 ${verbPrefix} poisons your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Cop') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        let dmg = t.hasActivity ? 2 : 1;
+        applyShieldedDamage(t, dmg);
+        writeLog(`👮 ${verbPrefix} strikes your ${t.name} for ${dmg} damage!`);
+        return true;
+    }
+    if (roleName === 'Spy') {
+        let pool = enemyPool.filter(c => c.name !== 'Spy');
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
+        applyShieldedDamage(t, 1);
+        writeLog(`👁️ ${verbPrefix} strikes your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Knight') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        if (t.name === 'Spy') applyShieldedExecution(t); else applyShieldedDamage(t, 1);
+        writeLog(`⚔️ ${verbPrefix} strikes your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Robber') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        applyShieldedDamage(t, 1);
+        aiActor.blood = Math.min(aiActor.maxBlood === Infinity ? 99 : aiActor.maxBlood, aiActor.blood + 1);
+        writeLog(`💰 ${verbPrefix} siphons 1 Blood from your ${t.name}!`);
+        return true;
+    }
+    if (roleName === 'Hood') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        applyShieldedDamage(t, 1);
+        let healTarget = allyPool.find(c => c.blood < c.maxBlood) || allyPool[0];
+        if (healTarget) healTarget.blood = Math.min(healTarget.maxBlood === Infinity ? 99 : healTarget.maxBlood, healTarget.blood + 1);
+        writeLog(`🏹 ${verbPrefix} strikes your ${t.name}${healTarget ? ' and channels blood to ' + healTarget.name : ''}!`);
+        return true;
+    }
+    if (roleName === 'Ninja') {
+        if (enemyPool.length === 0) return false;
+        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        applyShieldedDamage(t, 1);
+        writeLog(`🥷 ${verbPrefix} strikes your ${t.name}!`);
+        if (t.blood === 0 && !aiActor.hasKilled) {
+            aiActor.blood += 2;
+            aiActor.maxBlood = Math.max(aiActor.maxBlood, aiActor.blood);
+            aiActor.hasKilled = true;
+            writeLog(`🥷 ${aiActor.name} gains +2 Blood for the kill!`);
+        }
+        return true;
+    }
+    if (roleName === 'Doctor') {
+        let healTarget = allyPool.find(c => c.blood < c.maxBlood) || allyPool[0];
+        if (!healTarget) return false;
+        healTarget.blood = Math.min(healTarget.maxBlood === Infinity ? 99 : healTarget.maxBlood, healTarget.blood + 1);
+        writeLog(`❤️ ${verbPrefix} heals ${healTarget.name}!`);
+        return true;
+    }
+    if (roleName === 'Singer') {
+        if (enemyPool.length === 0) return false;
+        let t1 = pickBotTarget(enemyPool, gameState.difficulty);
+        let remaining = enemyPool.filter(c => c.id !== t1.id);
+        let t2 = remaining.length > 0 ? pickBotTarget(remaining, gameState.difficulty) : null;
+        applyShieldedDamage(t1, 1);
+        if (t2 && !(t1.blood === 0 && t2.blood === 1)) applyShieldedDamage(t2, 1);
+        writeLog(`🎤 ${verbPrefix} double-strikes your ${t1.name}${t2 ? ' and ' + t2.name : ''}!`);
+        return true;
+    }
+    if (roleName === 'Bartender') {
+        let activePlayerCards = gameState.p1.filter(c => c.blood > 0 && !c.imprisoned && c.blockedCounter <= 0);
+        if (activePlayerCards.length === 0) return false;
+        let forced = activePlayerCards[Math.floor(Math.random() * activePlayerCards.length)];
+        gameState.forcedPlayerActorName = forced.name;
+        writeLog(`🎲 ${verbPrefix} forces you to play your ${forced.name} next turn!`);
+        return true;
+    }
+    return false;
+}
+
+
 // mid/hard/extreme increasingly focus-fire the lowest-Blood eligible target.
 function pickBotTarget(pool, difficulty) {
     if (difficulty === 'easy' || pool.length === 0) return pool[Math.floor(Math.random() * pool.length)];
@@ -1901,15 +2162,39 @@ function processBotTurnRoutine() {
                     actionType = 'block';
                     writeLog(`🧞 Bot Jinn locked down ${targetPlayer.name}! It is suppressed and blocked for 3 moves.`);
                 } else if (aiActor.name === 'Therapist') {
-                    let botAllies = gameState.p2.filter(c => c.id !== aiActor.id);
-                    if (botAllies.length > 0) {
-                        let healTarget = botAllies.find(c => c.blood < c.maxBlood || c.poisoned || c.imprisoned) || botAllies[Math.floor(Math.random() * botAllies.length)];
-                        healTarget.blood = (healTarget.maxBlood === Infinity) ? 3 : healTarget.maxBlood;
-                        healTarget.poisoned = false;
-                        healTarget.imprisoned = false;
-                        writeLog(`🧘 Bot Therapist fully restored and cleansed squadmate ${healTarget.name}!`);
+                    if (gameState.playerLastAttackRecord) {
+                        let record = gameState.playerLastAttackRecord;
+                        let affectedCard = gameState.p2.find(c => c.id === record.targetId);
+                        restoreFromRecord(record, affectedCard);
+                        if (affectedCard) writeLog(`🧘 Bot Therapist reversed the assault on ${affectedCard.name}!`);
+
+                        let reboundPool = gameState.p1.filter(c => c.blood > 0 && !c.imprisoned && !c.isHeroic);
+                        if (reboundPool.length > 0) {
+                            let reboundTarget = reboundPool[Math.floor(Math.random() * reboundPool.length)];
+                            let abilityName = record.actorName;
+                            if (record.isDirectKill || abilityName === 'Killer') {
+                                applyShieldedExecution(reboundTarget);
+                                writeLog(`🧘 Bot Therapist rebounds lethal execution onto your ${reboundTarget.name}!`);
+                            } else if (record.wasImprisoned || abilityName === 'Dictator' || abilityName === 'Lawyer') {
+                                applyShieldedImprison(reboundTarget);
+                                writeLog(`🧘 Bot Therapist rebounds imprisonment onto your ${reboundTarget.name}!`);
+                            } else if (abilityName === 'Jinn') {
+                                reboundTarget.blockedCounter = 4;
+                                writeLog(`🧘 Bot Therapist rebounds lockdown onto your ${reboundTarget.name}!`);
+                            } else if (abilityName === 'Witch') {
+                                reboundTarget.poisoned = true;
+                                applyShieldedDamage(reboundTarget, 1);
+                                writeLog(`🧘 Bot Therapist rebounds poison strike onto your ${reboundTarget.name}!`);
+                            } else {
+                                let dmg = record.damageDealt > 0 ? record.damageDealt : 1;
+                                applyShieldedDamage(reboundTarget, dmg);
+                                if (record.wasPoisoned) reboundTarget.poisoned = true;
+                                writeLog(`🧘 Bot Therapist rebounds attack onto your ${reboundTarget.name} for ${dmg} damage.`);
+                            }
+                        }
                     } else {
-                        writeLog(`🧘 Bot Therapist found no squadmates to heal.`);
+                        writeLog(`🧘 Bot Therapist found no recent attack to rebound.`);
+                        executedAction = false;
                     }
                     aiActor.blood = 0;
                 } else if (aiActor.name === 'Robber') {
@@ -2012,20 +2297,37 @@ function processBotTurnRoutine() {
                         executedAction = false;
                     }
                 } else if (aiActor.name === 'Sorcerer') {
-                    if (targetPlayer.tag === 'Entity') {
-                        applyShieldedDamage(targetPlayer, 1);
-                        writeLog(`✨ Bot Sorcerer used Mystic Purge on Entity ${targetPlayer.name}, dealing 1 pure damage.`);
+                    let hijackPool = gameState.p1.filter(c => c.blood > 0 && !c.imprisoned && !c.isHeroic && !SORCERER_FORBIDDEN_ROLES.includes(c.name));
+                    if (hijackPool.length > 0) {
+                        let hijacked = hijackPool[Math.floor(Math.random() * hijackPool.length)];
+                        writeLog(`🔮 Bot Sorcerer hijacks control of your ${hijacked.name}!`);
+                        let didSomething = applyMimicRoleEffect(hijacked.name, aiActor, `Bot Sorcerer (as ${hijacked.name})`);
+                        applyShieldedDamage(hijacked, 1);
+                        writeLog(`⚠️ Control Loop Feedback: your ${hijacked.name} lost 1 Blood.`);
+                        if (!didSomething) executedAction = false;
                     } else {
-                        applyShieldedDamage(targetPlayer, 1);
-                        writeLog(`🔮 Bot Sorcerer hijacks control and strikes your ${targetPlayer.name} for 1 damage.`);
+                        writeLog(`🔮 Bot Sorcerer found no valid card to hijack.`);
+                        executedAction = false;
                     }
                 } else if (aiActor.name === 'Imam') {
-                    if (targetPlayer.tag === 'Entity') {
-                        applyShieldedDamage(targetPlayer, 1);
-                        writeLog(`✨ Bot Imam used Mystic Purge on Entity ${targetPlayer.name}, dealing 1 pure damage.`);
-                    } else {
-                        if (targetPlayer.name !== 'Spy') applyShieldedDamage(targetPlayer, 1);
-                        writeLog(`🕌 Bot Imam calls upon divine intervention and strikes ${targetPlayer.name}.`);
+                    writeLog(`🕌 Bot Imam calls upon divine intervention.`);
+                    executedAction = false;
+                    if (gameState.playerLastAttackRecord) {
+                        let record = gameState.playerLastAttackRecord;
+                        let targetCard = gameState.p2.find(c => c.id === record.targetId);
+                        let isBlockable = record.wasImprisoned || record.isDirectKill || record.isSorcererAction;
+                        if (targetCard && isBlockable) {
+                            if (record.wasImprisoned && targetCard.imprisoned) {
+                                targetCard.imprisoned = false;
+                                writeLog(`🕌 Bot Imam divine block! Released ${targetCard.name} from imprisonment.`);
+                                executedAction = true;
+                            } else if ((record.isDirectKill || record.isSorcererAction || record.damageDealt > 0) && !record.isNormalAttack) {
+                                targetCard.blood += record.damageDealt;
+                                if (targetCard.blood > targetCard.maxBlood && targetCard.maxBlood !== Infinity) targetCard.blood = targetCard.maxBlood;
+                                writeLog(`🕌 Bot Imam divine block! Restored ${targetCard.name} by +${record.damageDealt} Blood.`);
+                                executedAction = true;
+                            }
+                        }
                     }
                 } else if (aiActor.name === 'Knight') {
                     if (aiActor.blood === 1) {
@@ -2053,16 +2355,71 @@ function processBotTurnRoutine() {
                         writeLog(`🤖 Bot Mage strikes your ${targetPlayer.name} for 1 damage.`);
                     }
                 } else if (aiActor.name === 'Mecha') {
-                    if (targetPlayer.name !== 'Spy' && !(targetPlayer.tag === 'Entity')) {
-                        applyShieldedDamage(targetPlayer, 2);
-                        writeLog(`🤖 Bot Mecha activated overdrive fusion to deal 2 damage to your ${targetPlayer.name}.`);
+                    let partnerPool = gameState.p2.filter(c => c.id !== aiActor.id && c.blood > 0 && !c.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(c.name));
+                    let enemyPool = getBotCandidatePool(aiActor, gameState.p1);
+                    if (partnerPool.length > 0 && enemyPool.length > 0) {
+                        let partner = partnerPool[Math.floor(Math.random() * partnerPool.length)];
+                        let pName = partner.name;
+                        let first = pickBotTarget(enemyPool, gameState.difficulty);
+                        let others = enemyPool.filter(c => c.id !== first.id);
+                        let useSplit = others.length > 0 && Math.random() < 0.5;
+                        let second = useSplit ? pickBotTarget(others, gameState.difficulty) : first;
+                        let isSameTarget = (first.id === second.id);
+                        aiActor.mechaCooldown = 4;
+
+                        if (pName === 'Witch') {
+                            if (isSameTarget) { first.poisoned = true; applyShieldedDamage(first, 2); }
+                            else { first.poisoned = true; applyShieldedDamage(first, 1); second.poisoned = true; applyShieldedDamage(second, 1); }
+                            writeLog(`🤖 Bot Mecha+Witch Fusion: poisoned and struck your ${first.name}${isSameTarget ? '' : ' and ' + second.name}!`);
+                        } else if (pName === 'Hood') {
+                            if (isSameTarget) applyShieldedDamage(first, 2);
+                            else { applyShieldedDamage(first, 1); applyShieldedDamage(second, 1); }
+                            let healTarget = gameState.p2.filter(c => c.blood > 0 && !c.imprisoned).sort((a, b) => a.blood - b.blood)[0];
+                            if (healTarget) healTarget.blood = Math.min(healTarget.maxBlood === Infinity ? 99 : healTarget.maxBlood, healTarget.blood + 2);
+                            writeLog(`🤖 Bot Mecha+Hood Fusion: struck your ${first.name}${isSameTarget ? '' : ' and ' + second.name} and channeled +2 Blood to ${healTarget ? healTarget.name : 'a squadmate'}!`);
+                        } else if (pName === 'Killer') {
+                            applyShieldedExecution(first);
+                            if (!isSameTarget) applyShieldedExecution(second);
+                            writeLog(`🤖 Bot Mecha+Killer Fusion: executed your ${first.name}${isSameTarget ? '' : ' and ' + second.name}!`);
+                        } else if (pName === 'Robber') {
+                            if (isSameTarget) { applyShieldedDamage(first, 2); aiActor.blood = Math.min(aiActor.maxBlood === Infinity ? 99 : aiActor.maxBlood, aiActor.blood + 2); }
+                            else { applyShieldedDamage(first, 1); applyShieldedDamage(second, 1); aiActor.blood = Math.min(aiActor.maxBlood === Infinity ? 99 : aiActor.maxBlood, aiActor.blood + 2); }
+                            writeLog(`🤖 Bot Mecha+Robber Fusion: siphoned Blood from your ${first.name}${isSameTarget ? '' : ' and ' + second.name}!`);
+                        } else if (pName === 'Cop') {
+                            let dmg1 = first.hasActivity ? 2 : 1;
+                            let dmg2 = second.hasActivity ? 2 : 1;
+                            if (isSameTarget) { first.blood = Math.max(0, first.blood - (dmg1 * 2)); }
+                            else { applyShieldedDamage(first, dmg1); applyShieldedDamage(second, dmg2); }
+                            writeLog(`🤖 Bot Mecha+Cop Fusion: enforced damage on your ${first.name}${isSameTarget ? '' : ' and ' + second.name}!`);
+                        } else {
+                            if (isSameTarget) applyShieldedDamage(first, 2);
+                            else { applyShieldedDamage(first, 1); applyShieldedDamage(second, 1); }
+                            writeLog(`🤖 Bot Mecha+${pName} Fusion: delivered damage to your ${first.name}${isSameTarget ? '' : ' and ' + second.name}!`);
+                        }
+                    } else {
+                        writeLog(`🤖 Bot Mecha found no eligible fusion partner or target.`);
+                        executedAction = false;
                     }
                 } else if (aiActor.name === 'Watchmaker') {
-                    if (targetPlayer.name !== 'Spy' && targetPlayer.tag !== 'Entity') applyShieldedDamage(targetPlayer, 1);
-                    writeLog(`⏳ Bot Watchmaker strikes your ${targetPlayer.name} for 1 damage.`);
+                    writeLog(`⏳ Bot Watchmaker initiates localized chronoshift protocol.`);
+                    executedAction = false;
+                    if (gameState.playerLastAttackRecord) {
+                        let record = gameState.playerLastAttackRecord;
+                        let affectedCard = gameState.p2.find(c => c.id === record.targetId);
+                        if (affectedCard) {
+                            restoreFromRecord(record, affectedCard);
+                            writeLog(record.wasImprisoned
+                                ? `⏳ Chronoshift Overturn: Imprisonment of ${affectedCard.name} has been erased.`
+                                : `⏳ Chronoshift Overturn: Restored ${record.damageDealt} Blood and state modifiers to ${affectedCard.name}.`);
+                            executedAction = true;
+                        }
+                    }
                 } else if (aiActor.name === 'Bartender') {
-                    if (targetPlayer.name !== 'Spy') applyShieldedDamage(targetPlayer, 1);
-                    writeLog(`🎲 Bot Bartender mixes a toxic cocktail, striking your ${targetPlayer.name} for 1 damage.`);
+                    let didBartend = applyMimicRoleEffect('Bartender', aiActor, 'Bot Bartender');
+                    if (!didBartend) {
+                        writeLog(`🎲 Bot Bartender found no squadmate to lock in.`);
+                        executedAction = false;
+                    }
                 } else if (aiActor.name === 'Terrorist') {
                     gameState.p1.forEach(c => {
                         if (c.blood > 1 && !c.isHeroic) {
@@ -2092,42 +2449,36 @@ function processBotTurnRoutine() {
                     }
                     aiActor.blood = 0;
                 } else if (aiActor.name === 'Actor') {
-                    let roles = ['Killer', 'Dictator', 'Jinn', 'Witch', 'Cop'];
+                    let roles = ['Killer', 'Robber', 'Doctor', 'Dictator', 'Cop', 'Singer', 'Spy', 'Ninja', 'Hood', 'Witch', 'Lawyer', 'Knight', 'Jinn', 'Bartender'];
                     let randomRole = roles[Math.floor(Math.random() * roles.length)];
-                    writeLog(`🎭 Bot Actor mimics ${randomRole}!`);
-                    if (randomRole === 'Killer') {
-                        applyShieldedExecution(targetPlayer); isDirectKill = true;
-                    } else if (randomRole === 'Dictator') {
-                        applyShieldedImprison(targetPlayer); actionType = 'imprison';
-                    } else if (randomRole === 'Jinn') {
-                        targetPlayer.blockedCounter = 4; actionType = 'block';
-                    } else if (randomRole === 'Witch') {
-                        targetPlayer.poisoned = true; applyShieldedDamage(targetPlayer, 1);
-                    } else if (randomRole === 'Cop') {
-                        let dmg = targetPlayer.hasActivity ? 2 : 1;
-                        applyShieldedDamage(targetPlayer, dmg);
+                    let didAct = applyMimicRoleEffect(randomRole, aiActor, `Bot Actor (as ${randomRole})`);
+                    if (!didAct) {
+                        writeLog(`🎭 Bot Actor mimicked ${randomRole} but found no valid target.`);
+                        executedAction = false;
                     }
                     aiActor.blood = 0;
                 } else if (aiActor.name === 'Princess') {
+                    writeLog(`👸 Bot Princess sacrifices her sacred soul to nullify your last assault!`);
                     aiActor.blood = 0;
-                    writeLog(`👸 Bot Princess sacrifices her soul to assert presence.`);
+                    if (gameState.playerLastAttackRecord) {
+                        let record = gameState.playerLastAttackRecord;
+                        let affectedCard = gameState.p2.find(c => c.id === record.targetId);
+                        restoreFromRecord(record, affectedCard);
+                        if (affectedCard) writeLog(`👸 Restored ${affectedCard.name} back to operational safety.`);
+                        gameState.playerLastAttackRecord = null;
+                    } else {
+                        executedAction = false;
+                    }
                 } else if (aiActor.name === 'Dementor') {
                     let deadCards = [...gameState.p1, ...gameState.p2].filter(c => c.blood <= 0 && !DEMENTOR_FORBIDDEN_ROLES.includes(c.name));
                     if (deadCards.length > 0) {
                         let randomDead = deadCards[Math.floor(Math.random() * deadCards.length)];
                         writeLog(`💀 Bot Dementor reanimates the essence of ${randomDead.name}!`);
-                        if (randomDead.name === 'Killer') {
-                            applyShieldedExecution(targetPlayer); isDirectKill = true;
-                        } else if (randomDead.name === 'Dictator') {
-                            applyShieldedImprison(targetPlayer); actionType = 'imprison';
-                        } else if (randomDead.name === 'Jinn') {
-                            targetPlayer.blockedCounter = 4; actionType = 'block';
-                        } else {
-                            applyShieldedDamage(targetPlayer, 1);
-                        }
+                        let didAct = applyMimicRoleEffect(randomDead.name, aiActor, `Bot Dementor (as ${randomDead.name})`);
+                        if (!didAct) executedAction = false;
                     } else {
-                        applyShieldedDamage(targetPlayer, 1);
-                        writeLog(`🤖 Bot Dementor strikes your ${targetPlayer.name} for 1 damage.`);
+                        writeLog(`💀 Bot Dementor found no dead cards to reanimate.`);
+                        executedAction = false;
                     }
                 } else if (aiActor.name === 'Skinwalker') {
                     if (gameState.unusedBloodbanes.length > 0) {
@@ -2225,6 +2576,22 @@ function renderScene() {
     [...gameState.p1, ...gameState.p2].forEach(c => {
         if (c.name === 'Skinwalker' && c.blood < 1) c.blood = 1;
     });
+    if (gameState.forcedPlayerActorName) {
+        let forcedCard = gameState.p1.find(c => c.name === gameState.forcedPlayerActorName);
+        let onCooldown = forcedCard && (
+            (forcedCard.cooldown === 'consecutive' && forcedCard.lastUsedRound && (gameState.roundCount - forcedCard.lastUsedRound < 2)) ||
+            (forcedCard.cooldown === '3moves' && forcedCard.lastUsedRound && (gameState.roundCount - forcedCard.lastUsedRound < 4)) ||
+            (forcedCard.name === 'Mecha' && forcedCard.mechaCooldown > 0)
+        );
+        let stillUsable = forcedCard && forcedCard.blood > 0 && !forcedCard.imprisoned && forcedCard.blockedCounter <= 0 && !onCooldown && hasValidTargets(forcedCard, gameState.p1, gameState.p2);
+        if (!stillUsable) {
+            if (gameState.forcedPlayerActorName) writeLog(`🎲 Your ${gameState.forcedPlayerActorName} can't act right now — the Bartender's lock fades and you may choose freely.`);
+            gameState.forcedPlayerActorName = null;
+        }
+    }
+    document.getElementById('p1Title').innerText = gameState.forcedPlayerActorName
+        ? `Your Squad — 🎲 Bartender forces you to play: ${gameState.forcedPlayerActorName}`
+        : 'Your Squad';
     evaluateWinThresholds();
     if (gameState.isGameOver) {
         document.getElementById('turnIndicator').innerText = "🏁 SIMULATION CONCLUDED";
@@ -2256,7 +2623,7 @@ function renderScene() {
         if (card.name === 'Mecha' && card.mechaCooldown > 0) isLockedByCooldown = true;
         if (card.blockedCounter > 0) isLockedByCooldown = true;
 
-        let canTakeAction = gameState.currentTurn === 1 && !isDead && !card.imprisoned && !gameState.targetingMode.isActive;
+        let canTakeAction = gameState.currentTurn === 1 && !isDead && !card.imprisoned && !gameState.targetingMode.isActive && (!gameState.forcedPlayerActorName || card.name === gameState.forcedPlayerActorName);
         let okMoves = hasValidTargets(card, gameState.p1, gameState.p2);
         
         let heartsDisplay = card.name === 'Spy' ? '🩸 ∞' : '🩸'.repeat(card.blood);
@@ -2299,6 +2666,20 @@ function renderScene() {
             
             if (m === 'sorcerer_hijacked_action' && !isDead && !card.imprisoned && !card.isHeroic && gameState.targetingMode.metadata.originalType !== 'Doctor') {
                 isEligibleEnemy = true;
+            } else if (m === 'sorcerer_hijacked_singer_step2' && !isDead && !card.imprisoned && !card.isHeroic) {
+                if (card.id === gameState.targetingMode.firstTargetId) {
+                    isSelectedFirst = true;
+                } else {
+                    let enemy1 = gameState.p2.find(c => c.id === gameState.targetingMode.firstTargetId);
+                    let wouldKillFirst = (enemy1.blood === 1);
+                    let wouldKillSecond = (card.blood === 1);
+                    if (wouldKillFirst && wouldKillSecond) {
+                        let otherOptions = gameState.p2.filter(e => e.blood > 0 && !e.imprisoned && !e.isHeroic && e.id !== enemy1.id && e.id !== card.id && e.blood > 1);
+                        if (otherOptions.length === 0) isEligibleEnemy = true;
+                    } else {
+                        isEligibleEnemy = true;
+                    }
+                }
             } else if (!isDead && !card.imprisoned && m !== 'doctor_heal' && !m.startsWith('reporter_heal_') && m !== 'hood_step2' && m !== 'mecha_hood_share_2' && !m.startsWith('mage_revive_') && m !== 'mecha_select_partner') {
                 if (!card.isHeroic) {
                     if (m === 'mystic_purge') {
