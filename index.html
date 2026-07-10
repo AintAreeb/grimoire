@@ -1157,29 +1157,31 @@ const MP_APP_ID = 'bloodlust-cardgame-v1';
 
 // Trystero's default STUN-only setup can't connect two peers when at least
 // one is behind a strict/symmetric NAT (common on mobile carriers). This adds
-// a free public TURN server (Open Relay Project) as a fallback relay so the
-// connection can still complete. These are Open Relay's published free/test
-// credentials — fine for personal use, but swap in your own account
-// (openrelayproject.org) if this app gets real traffic, since the free tier
-// is rate-limited.
+// a TURN server as a fallback relay so the connection can still complete.
+// These are this app's own Metered/Open Relay credentials (free plan, 500MB/mo).
 const MP_CONFIG = {
     appId: MP_APP_ID,
     trickleIce: true,
     turnConfig: [
         {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:global.relay.metered.ca:80',
+            username: 'cda12bf2a5c5619e29173d64',
+            credential: 'P9vIJh+Sr8qlgfxJ'
         },
         {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+            username: 'cda12bf2a5c5619e29173d64',
+            credential: 'P9vIJh+Sr8qlgfxJ'
         },
         {
-            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:global.relay.metered.ca:443',
+            username: 'cda12bf2a5c5619e29173d64',
+            credential: 'P9vIJh+Sr8qlgfxJ'
+        },
+        {
+            urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+            username: 'cda12bf2a5c5619e29173d64',
+            credential: 'P9vIJh+Sr8qlgfxJ'
         }
     ]
 };
