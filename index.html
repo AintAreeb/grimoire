@@ -391,6 +391,14 @@
             line-height: 1.15;
             width: 100%;
             overflow: hidden;
+            /* Bug fix: when extra badges (e.g. the Jinn "BLOCKED (n)" label)
+               are added to a card, the flexbox card container would shrink
+               this title down toward 0 height to make room, since its
+               overflow:hidden gives it an automatic minimum size of 0. That
+               squashed/hid the card name behind the other badges. Locking
+               it to never shrink keeps the name fully visible no matter
+               what other badges are shown alongside it. */
+            flex-shrink: 0;
             /* Bug fix: names were being hard-truncated with an ellipsis on
                narrow/portrait phones (anything longer than ~8 chars, e.g.
                "Watchmaker", "Skinwalker", "Bartender", "Therapist",
