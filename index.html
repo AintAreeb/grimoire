@@ -573,7 +573,7 @@ const CARD_POOL = [
     { name: 'Bartender', tag: 'Criminal', maxBlood: 2, hex: 1, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Jinn', tag: 'Entity', maxBlood: 2, hex: 1, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Watchmaker', tag: 'Bloodsmith', maxBlood: 2, hex: 3, cooldown: '3moves', category: 'Bloodborne' },
-    { name: 'Skinwalker', tag: 'Mystic', maxBlood: 1, hex: 3, cooldown: 'consecutive', category: 'Bloodborne' },
+    { name: 'Skinwalker', tag: 'Mystic', maxBlood: 1, hex: 3, cooldown: 'consecutive', category: 'Bloodbane' },
     { name: 'Hacker', tag: 'Criminal', maxBlood: 2, hex: 3, cooldown: '3moves', category: 'Bloodborne' },
 
     // Heroics/SacredSouls
@@ -588,7 +588,28 @@ const CARD_POOL = [
 // Heroic/SacredSouls category plus Skinwalker, Sorcerer and Watchmaker.
 const DEMENTOR_FORBIDDEN_ROLES = ['Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist', 'Skinwalker', 'Sorcerer', 'Watchmaker'];
 // Cards that 'Sorcerer' is forbidden from hijacking/controlling, beyond Heroics.
-const SORCERER_FORBIDDEN_ROLES = ['Skinwalker', 'Dementor', 'Watchmaker'];
+const SORCERER_FORBIDDEN_ROLES = ['Skinwalker', 'Dementor', 'Watchmaker', 'Bartender'];
+
+// The set of roles whose moves Bartender is able to copy (the same set
+// Actor/Dementor are able to mimic). If the opponent's last move wasn't
+// produced by one of these roles (directly or via a mimic that resolved
+// into one of them), Bartender has nothing to copy.
+const BARTENDER_MIMICABLE_ROLES = ['Killer', 'Robber', 'Doctor', 'Dictator', 'Cop', 'Singer', 'Spy', 'Ninja', 'Hood', 'Witch', 'Lawyer', 'Knight', 'Jinn'];
+
+// Bartender is not allowed to copy a move if it was actually performed by
+// one of these cards — Dementor, Sorcerer, Watchmaker, Skinwalker, or any
+// Heroic/SacredSouls card (Actor, Therapist, Princess, Reporter, Terrorist)
+// — even if that card's move resolved into an otherwise-copyable role (e.g.
+// an Actor mimicking Killer, or a Sorcerer hijacking a Doctor). This is
+// checked against the physical card that actually acted, not the role its
+// move resolved into.
+const BARTENDER_COPY_EXCLUDED_ACTORS = ['Dementor', 'Sorcerer', 'Watchmaker', 'Skinwalker', 'Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist'];
+function isBartenderCopyExcludedActor(card) {
+    if (!card) return false;
+    if (card.isHeroic || card.category === 'Heroic' || card.category === 'SacredSouls') return true;
+    if (card.wasSkinwalker) return true;
+    return BARTENDER_COPY_EXCLUDED_ACTORS.includes(card.name);
+}
 
 let gameState = {
     roundCount: 1,
@@ -606,7 +627,15 @@ let gameState = {
     forcedPlayerActorName: null,
     botExecutionSequenceOverride: null,
     unusedBloodbanes: [],
-    lastHackerSwapCategory: null
+    lastHackerSwapCategory: null,
+    // Tracks the role-identity of the last mimicable move each side actually
+    // landed (Killer's execute, Doctor's heal, etc), regardless of which
+    // physical card performed it (a direct play OR an Actor/Dementor/
+    // Sorcerer/Bartender mimic all register as the role they enacted). Used
+    // by Bartender's "copy the opponent's last move" ability. null means
+    // the side's last turn didn't produce a copyable move.
+    p1LastMoveRole: null,
+    p2LastMoveRole: null
 };
 
 // --- K-Shield protection helpers ---------------------------------------
@@ -727,6 +756,45 @@ function recordPlayerAttack(actorId, baseMove) {
     };
 }
 
+// Maps a resolved targeting action back to the role identity of the move
+// that was just played, regardless of which physical card performed it —
+// a direct Killer play and an Actor/Dementor/Sorcerer/Bartender mimic of
+// Killer both resolve through the 'killer_strike' baseMove, so both
+// register as 'Killer' here. Returns null for moves that aren't one of
+// Bartender's copyable roles (heals from Reporter, Therapist rebounds,
+// Mage revives, Mecha fusions, etc).
+function deriveMoveRoleForTracking(actorId, baseMove) {
+    let actingCard = gameState.p1.find(c => c.id === actorId);
+    if (isBartenderCopyExcludedActor(actingCard)) return null;
+    const directRoleMap = {
+        'killer_strike': 'Killer',
+        'robber_siphon': 'Robber', 'robber_execute': 'Robber',
+        'doctor_heal': 'Doctor',
+        'dictator_imprison': 'Dictator',
+        'cop_strike': 'Cop',
+        'singer_step1': 'Singer', 'singer_step2': 'Singer',
+        'spy_strike': 'Spy',
+        'ninja_strike': 'Ninja',
+        'hood_step1': 'Hood', 'hood_step2': 'Hood',
+        'witch_poison': 'Witch',
+        'lawyer_lock': 'Lawyer',
+        'knight_strike': 'Knight',
+        'jinn_block': 'Jinn'
+    };
+    if (directRoleMap[baseMove]) return directRoleMap[baseMove];
+    if (baseMove === 'mystic_purge') {
+        let actor = gameState.p1.find(c => c.id === actorId);
+        let name = actor ? actor.name : null;
+        return BARTENDER_MIMICABLE_ROLES.includes(name) ? name : null;
+    }
+    if (baseMove === 'sorcerer_hijacked_action' || baseMove === 'sorcerer_hijacked_singer_step2') {
+        let meta = gameState.targetingMode.metadata;
+        let originalType = meta ? meta.originalType : null;
+        return BARTENDER_MIMICABLE_ROLES.includes(originalType) ? originalType : null;
+    }
+    return null;
+}
+
 // Call this instead of "abortTargetingSequence(); finalizeActiveTurn();"
 // at the true end of any targeted move so wasted moves get refunded.
 function concludeTargetedMove(actorId, baseMove) {
@@ -741,6 +809,7 @@ function concludeTargetedMove(actorId, baseMove) {
         return;
     }
     recordPlayerAttack(actorId, baseMove);
+    gameState.p1LastMoveRole = deriveMoveRoleForTracking(actorId, baseMove);
     abortTargetingSequence();
     finalizeActiveTurn();
 }
@@ -981,6 +1050,7 @@ function executeKnightFirstMove(actorId) {
     actor.hasActivity = true;
     gameState.p1KnightShields = 2;
     writeLog(`🛡️ Your Knight activated a global protection shield.`);
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1019,6 +1089,7 @@ function executeWatchmakerTimeTravel(actorId) {
         }
     }
     if (actor.blood <= 0) actor.blood = 0;
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1047,6 +1118,7 @@ function executeImamDefensiveBlock(actorId) {
         }
     }
     
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1085,6 +1157,7 @@ function commitReporterTurn(cardId) {
     actor.hasActivity = true;
     actor.blood = 0;
     writeLog(`📰 Reporter concludes operational turn.`);
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1114,6 +1187,7 @@ function executeTerroristDrain(actorId) {
     actor.blood = 0;
     actor.hasActivity = true;
     writeLog(`💥 Terrorist drained 1 blood from eligible opponent cards and died instantly.`);
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1152,14 +1226,7 @@ function handleActorRoleSelection(roleName) {
     else if (roleName === 'Knight') openTargetingOverlay(actorCard.id, 'knight_strike', '⚔️ ACTOR AS KNIGHT');
     else if (roleName === 'Jinn') openTargetingOverlay(actorCard.id, 'jinn_block', '🧞 ACTOR AS JINN');
     else if (roleName === 'Bartender') {
-        let activeEnemies = gameState.p2.filter(c => c.blood > 0 && !c.imprisoned && c.blockedCounter <= 0);
-        if (activeEnemies.length > 0) {
-            let randomEnemyCard = activeEnemies[Math.floor(Math.random() * activeEnemies.length)];
-            gameState.botExecutionSequenceOverride = randomEnemyCard.name;
-        }
-        actorCard.hasActivity = true;
-        actorCard.blood = 0;
-        finalizeActiveTurn();
+        beginBartenderCopyTargeting(actorCard.id, 'Actor (as Bartender)');
     }
 }
 
@@ -1208,14 +1275,7 @@ function handleDementorRoleSelection(roleName, actorId) {
     else if (roleName === 'Knight') openTargetingOverlay(dementorCard.id, 'knight_strike', '⚔️ DEMENTOR AS KNIGHT');
     else if (roleName === 'Jinn') openTargetingOverlay(dementorCard.id, 'jinn_block', '🧞 DEMENTOR AS JINN');
     else if (roleName === 'Bartender') {
-        let activeEnemies = gameState.p2.filter(c => c.blood > 0 && !c.imprisoned && c.blockedCounter <= 0);
-        if (activeEnemies.length > 0) {
-            let randomEnemyCard = activeEnemies[Math.floor(Math.random() * activeEnemies.length)];
-            gameState.botExecutionSequenceOverride = randomEnemyCard.name;
-        }
-        dementorCard.hasActivity = true;
-        dementorCard.blood = 0;
-        finalizeActiveTurn();
+        beginBartenderCopyTargeting(dementorCard.id, 'Dementor (as Bartender)');
     }
 }
 
@@ -1434,6 +1494,7 @@ function handleHackerSwap(actorId, ownId, enemyId) {
     if (actor.blood <= 0) actor.blood = 0;
 
     writeLog(`💻 Your Hacker swapped ${ownSnapshot.name} with enemy ${enemySnapshot.name}! Both blusters restored to full Blood.`);
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1464,22 +1525,7 @@ function commitBlankSacrifice(cardId) {
     if (actor.cooldown === '3moves') actor.lastUsedRound = gameState.roundCount;
     if (actor.blood <= 0) actor.blood = 0;
     if (actor.isHeroic) actor.blood = 0;
-    finalizeActiveTurn();
-}
-
-function handleBartenderChoiceSelection(chosenCardName) {
-    document.getElementById('bartenderChoiceModal').style.display = 'none';
-    gameState.forcedBotActorName = chosenCardName;
-    writeLog(`🎲 Bartender choice mode set: Forceful tactical override will mandate enemy to deploy ${chosenCardName}.`);
-    
-    let actorCard = gameState.p1.find(c => c.name === 'Bartender' && c.blood > 0);
-    if (actorCard) {
-        actorCard.bartenderState = 'random';
-        actorCard.blood -= 1;
-        actorCard.hasActivity = true;
-        actorCard.lastUsedRound = gameState.roundCount;
-        if (actorCard.blood <= 0) actorCard.blood = 0;
-    }
+    gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
 }
 
@@ -1872,41 +1918,40 @@ function processSelectedTarget(targetId) {
     concludeTargetedMove(actorCard.id, baseMove);
 }
 
-function runBartenderAbilityPad(actorId) {
-    let actor = gameState.p1.find(c => c.id === actorId);
-    let activeEnemies = gameState.p2.filter(c => c.blood > 0 && !c.imprisoned && c.blockedCounter <= 0);
-    
-    if (activeEnemies.length === 0) {
-        writeLog(`🎲 Bartender variation found no valid active enemy cards to manipulate.`);
-        return;
+// Shared by the player's own Bartender and by Actor/Dementor mimicking
+// Bartender: looks at the opponent's last mimicable move (tracked in
+// gameState.p2LastMoveRole) and opens the exact same targeting flow a
+// direct play of that role would use, so the player picks the target the
+// same way they would for the real role. Returns true if a copy was
+// launched, false if there was nothing valid to copy — in which case, like
+// other "no valid target" mimics elsewhere in this file, no Blood or turn
+// is spent and the player is free to try something else.
+function beginBartenderCopyTargeting(actorId, cardLabel) {
+    let copyRole = gameState.p2LastMoveRole;
+    if (!copyRole || !BARTENDER_MIMICABLE_ROLES.includes(copyRole)) {
+        writeLog(`🍹 ${cardLabel} found no recent enemy move to copy and stands down.`);
+        return false;
     }
+    writeLog(`🍹 ${cardLabel} mixes a copycat brew, replicating the enemy's last ${copyRole} move!`);
+    let tag = `${cardLabel.toUpperCase()} (AS ${copyRole.toUpperCase()})`;
+    if (copyRole === 'Killer') openTargetingOverlay(actorId, 'killer_strike', `🎯 ${tag}`);
+    else if (copyRole === 'Robber') openTargetingOverlay(actorId, 'robber_siphon', `💰 ${tag}`);
+    else if (copyRole === 'Doctor') openTargetingOverlay(actorId, 'doctor_heal', `❤️ ${tag}`);
+    else if (copyRole === 'Dictator') openTargetingOverlay(actorId, 'dictator_imprison', `⛓️ ${tag}`);
+    else if (copyRole === 'Cop') openTargetingOverlay(actorId, 'cop_strike', `👮 ${tag}`);
+    else if (copyRole === 'Singer') openTargetingOverlay(actorId, 'singer_step1', `🎤 ${tag}`);
+    else if (copyRole === 'Spy') openTargetingOverlay(actorId, 'spy_strike', `👁️ ${tag}`);
+    else if (copyRole === 'Ninja') openTargetingOverlay(actorId, 'ninja_strike', `🥷 ${tag}`);
+    else if (copyRole === 'Hood') openTargetingOverlay(actorId, 'hood_step1', `🏹 ${tag}`);
+    else if (copyRole === 'Witch') openTargetingOverlay(actorId, 'witch_poison', `🔮 ${tag}`);
+    else if (copyRole === 'Lawyer') openTargetingOverlay(actorId, 'lawyer_lock', `⚖️ ${tag}`);
+    else if (copyRole === 'Knight') openTargetingOverlay(actorId, 'knight_strike', `⚔️ ${tag}`);
+    else if (copyRole === 'Jinn') openTargetingOverlay(actorId, 'jinn_block', `🧞 ${tag}`);
+    return true;
+}
 
-    if (actor.bartenderState === 'random') {
-        let randomEnemyCard = activeEnemies[Math.floor(Math.random() * activeEnemies.length)];
-        gameState.botExecutionSequenceOverride = randomEnemyCard.name;
-        writeLog(`🎲 Bartender deployed! Next bot deployment protocol has been randomized to force card: ${randomEnemyCard.name}.`);
-        actor.bartenderState = 'choose';
-        actor.blood -= 1;
-        actor.hasActivity = true;
-        actor.lastUsedRound = gameState.roundCount;
-        if (actor.blood <= 0) actor.blood = 0;
-        finalizeActiveTurn();
-    } else {
-        let container = document.getElementById('bartenderOptionsContainer');
-        container.innerHTML = '';
-        let uniqueNames = [...new Set(activeEnemies.map(c => c.name))];
-        
-        uniqueNames.forEach(name => {
-            let b = document.createElement('button');
-            b.className = 'btn';
-            b.style.margin = '2px 0';
-            b.style.background = '#444';
-            b.innerText = name.toUpperCase();
-            b.onclick = () => handleBartenderChoiceSelection(name);
-            container.appendChild(b);
-        });
-        document.getElementById('bartenderChoiceModal').style.display = 'flex';
-    }
+function runBartenderAbilityPad(actorId) {
+    beginBartenderCopyTargeting(actorId, 'Bartender');
 }
 
 function finalizeActiveTurn() {
@@ -1945,12 +1990,15 @@ function getBotCandidatePool(actor, enemies) {
 function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
     let enemyPool = getBotCandidatePool(aiActor, gameState.p1);
     let allyPool = gameState.p2.filter(c => c.id !== aiActor.id && c.blood > 0 && !c.imprisoned);
+    gameState.p2LastMoveRole = null;
+    let copyExcluded = isBartenderCopyExcludedActor(aiActor);
 
     if (roleName === 'Killer') {
         if (enemyPool.length === 0) return false;
         let t = pickBotTarget(enemyPool, gameState.difficulty);
         applyShieldedExecution(t);
         writeLog(`🎯 ${verbPrefix} executes your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Dictator' || roleName === 'Lawyer') {
@@ -1958,6 +2006,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let t = pickBotTarget(enemyPool, gameState.difficulty);
         applyShieldedImprison(t);
         writeLog(`⛓️ ${verbPrefix} imprisons your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Jinn') {
@@ -1965,6 +2014,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let t = pickBotTarget(enemyPool, gameState.difficulty);
         t.blockedCounter = 4;
         writeLog(`🧞 ${verbPrefix} locks down your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Witch') {
@@ -1973,6 +2023,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         t.poisoned = true;
         applyShieldedDamage(t, 1);
         writeLog(`🔮 ${verbPrefix} poisons your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Cop') {
@@ -1981,6 +2032,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let dmg = t.hasActivity ? 2 : 1;
         applyShieldedDamage(t, dmg);
         writeLog(`👮 ${verbPrefix} strikes your ${t.name} for ${dmg} damage!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Spy') {
@@ -1989,6 +2041,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let t = pickBotTarget(pool, gameState.difficulty);
         applyShieldedDamage(t, 1);
         writeLog(`👁️ ${verbPrefix} strikes your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Knight') {
@@ -1996,6 +2049,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let t = pickBotTarget(enemyPool, gameState.difficulty);
         if (t.name === 'Spy') applyShieldedExecution(t); else applyShieldedDamage(t, 1);
         writeLog(`⚔️ ${verbPrefix} strikes your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Robber') {
@@ -2004,6 +2058,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         applyShieldedDamage(t, 1);
         aiActor.blood = Math.min(aiActor.maxBlood === Infinity ? 99 : aiActor.maxBlood, aiActor.blood + 1);
         writeLog(`💰 ${verbPrefix} siphons 1 Blood from your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Hood') {
@@ -2013,6 +2068,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let healTarget = allyPool.find(c => c.blood < c.maxBlood) || allyPool[0];
         if (healTarget) healTarget.blood = Math.min(healTarget.maxBlood === Infinity ? 99 : healTarget.maxBlood, healTarget.blood + 1);
         writeLog(`🏹 ${verbPrefix} strikes your ${t.name}${healTarget ? ' and channels blood to ' + healTarget.name : ''}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Ninja') {
@@ -2026,6 +2082,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
             aiActor.hasKilled = true;
             writeLog(`🥷 ${aiActor.name} gains +2 Blood for the kill!`);
         }
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Doctor') {
@@ -2033,6 +2090,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         if (!healTarget) return false;
         healTarget.blood = Math.min(healTarget.maxBlood === Infinity ? 99 : healTarget.maxBlood, healTarget.blood + 1);
         writeLog(`❤️ ${verbPrefix} heals ${healTarget.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Singer') {
@@ -2043,15 +2101,17 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         applyShieldedDamage(t1, 1);
         if (t2 && !(t1.blood === 0 && t2.blood === 1)) applyShieldedDamage(t2, 1);
         writeLog(`🎤 ${verbPrefix} double-strikes your ${t1.name}${t2 ? ' and ' + t2.name : ''}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Bartender') {
-        let activePlayerCards = gameState.p1.filter(c => c.blood > 0 && !c.imprisoned && c.blockedCounter <= 0);
-        if (activePlayerCards.length === 0) return false;
-        let forced = activePlayerCards[Math.floor(Math.random() * activePlayerCards.length)];
-        gameState.forcedPlayerActorName = forced.name;
-        writeLog(`🎲 ${verbPrefix} forces you to play your ${forced.name} next turn!`);
-        return true;
+        let copyRole = gameState.p1LastMoveRole;
+        if (!copyRole || !BARTENDER_MIMICABLE_ROLES.includes(copyRole)) {
+            writeLog(`🍹 ${verbPrefix} found no recent player move to copy.`);
+            return false;
+        }
+        writeLog(`🍹 ${verbPrefix} mixes a copycat brew, replicating your last ${copyRole} move!`);
+        return applyMimicRoleEffect(copyRole, aiActor, verbPrefix);
     }
     return false;
 }
@@ -2417,7 +2477,6 @@ function processBotTurnRoutine() {
                 } else if (aiActor.name === 'Bartender') {
                     let didBartend = applyMimicRoleEffect('Bartender', aiActor, 'Bot Bartender');
                     if (!didBartend) {
-                        writeLog(`🎲 Bot Bartender found no squadmate to lock in.`);
                         executedAction = false;
                     }
                 } else if (aiActor.name === 'Terrorist') {
@@ -2541,6 +2600,14 @@ function processBotTurnRoutine() {
                 gameState.botLastAttackRecord = null;
             }
 
+            // Actor/Dementor/Sorcerer/Bartender already set gameState.p2LastMoveRole
+            // themselves (to whichever role they actually ended up mimicking, or to
+            // null if the mimic attempt found nothing valid) inside
+            // applyMimicRoleEffect. Direct role plays are tracked here instead.
+            if (!['Actor', 'Dementor', 'Sorcerer', 'Bartender'].includes(aiActor.name)) {
+                gameState.p2LastMoveRole = (executedAction && BARTENDER_MIMICABLE_ROLES.includes(aiActor.name)) ? aiActor.name : null;
+            }
+
             if (aiActor.cooldown === 'consecutive') aiActor.lastUsedRound = gameState.roundCount;
             if (aiActor.cooldown === '3moves') aiActor.lastUsedRound = gameState.roundCount;
         } else {
@@ -2548,6 +2615,7 @@ function processBotTurnRoutine() {
             if (aiActor.name !== 'Spy' && !aiActor.isHeroic) aiActor.blood -= 1;
             aiActor.hasActivity = true;
             if (aiActor.blood <= 0) aiActor.blood = 0;
+            gameState.p2LastMoveRole = null;
             writeLog(`🤖 Bot ${aiActor.name} has no operational space and passes.`);
         }
     }
@@ -2854,7 +2922,9 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
             btns.push(`<button class="btn" style="background:#00bcd4;" onclick="openTargetingOverlay('${card.id}', 'jinn_block', '🧞 SELECT TARGET TO BLOCK FOR 3 MOVES')">Lockdown</button>`);
         }
         if (card.name === 'Bartender') {
-            let labelText = card.bartenderState === 'random' ? '🎲 Randomise' : '🃏 Choose';
+            let copyRole = gameState.p2LastMoveRole;
+            let canCopy = copyRole && BARTENDER_MIMICABLE_ROLES.includes(copyRole);
+            let labelText = canCopy ? `🍹 Copy ${copyRole}` : '🍹 Nothing to copy';
             btns.push(`<button class="btn" style="background:#ff9800; color:#000;" onclick="runBartenderAbilityPad('${card.id}')">${labelText}</button>`);
         }
         if (card.name === 'Doctor') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'doctor_heal', '❤️ HEAL SQUADMATE')">Heal</button>`);
