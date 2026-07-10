@@ -484,12 +484,6 @@
     }
   </script>
 
-  <!-- TEMPORARY DEBUG TOOL — Eruda adds a floating console button so we can
-       see real errors/logs directly on your phone, no computer needed.
-       Safe to delete this <script> tag once we're done debugging. -->
-  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-  <script>eruda.init();</script>
-
       <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
 
@@ -566,7 +560,6 @@
 
             <div id="mpRoomCodeDisplay" style="font-size:16px; font-weight:700; letter-spacing:0.1em; color:#4af7a7; margin-top:14px;"></div>
             <div id="mpStatus" style="font-size:11px; color:#8a8f98; margin-top:8px; min-height:14px;"></div>
-            <div id="mpTrackerStatus" style="font-size:9px; color:#5a5f68; margin-top:4px; min-height:12px;"></div>
             <button class="btn cancel-btn" style="max-width:260px; margin:14px auto 0 auto;" onclick="mpCancelConnection()">CANCEL</button>
         </div>
 
@@ -672,7 +665,7 @@ const CARD_POOL = [
     { name: 'Imam', tag: 'Mystic', maxBlood: 2, hex: 3, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Mage', tag: 'Mystic', maxBlood: 3, hex: 3, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Doctor', tag: 'Medic', maxBlood: 3, hex: 1, cooldown: 'none', category: 'Bloodborne' },
-    { name: 'Bartender', tag: 'Criminal', maxBlood: 2, hex: 1, cooldown: 'consecutive', category: 'Bloodborne' },
+    { name: 'Bartender', tag: 'Criminal', maxBlood: 2, hex: 2, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Jinn', tag: 'Entity', maxBlood: 2, hex: 1, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Watchmaker', tag: 'Bloodsmith', maxBlood: 2, hex: 3, cooldown: '3moves', category: 'Bloodborne' },
     { name: 'Skinwalker', tag: 'Mystic', maxBlood: 1, hex: 3, cooldown: 'consecutive', category: 'Bloodbane' },
@@ -1220,32 +1213,32 @@ function mpLog(text) {
     if (el) el.innerText = text;
 }
 
-// Polls the raw WebSocket connections Trystero uses to reach the BitTorrent
-// trackers (its signaling layer — this is separate from the actual peer
-// connection). If these never reach OPEN, two devices can never discover
-// each other no matter how long you wait, which usually means the network
-// is blocking outbound WebSocket connections to the tracker hosts.
-setInterval(() => {
-    const el = document.getElementById('mpTrackerStatus');
-    if (!el) return;
-    if (!mp.isMultiplayer || !window.__trysteroGetRelaySockets) {
-        el.innerText = '';
-        return;
+// WebRTC/JSON can't carry the raw Infinity value used for Spy's immortal
+// blood pool — JSON.stringify silently turns Infinity into null, and null
+// reads as "blood <= 0" (i.e. dead) the instant it lands on the other
+// device. These swap Infinity for a large-but-finite sentinel before
+// anything with card data goes over the wire, and swap it back on arrival.
+const MP_INFINITY_MARKER = 999999;
+function mpSanitizeForWire(value) {
+    if (value === Infinity) return MP_INFINITY_MARKER;
+    if (Array.isArray(value)) return value.map(mpSanitizeForWire);
+    if (value && typeof value === 'object') {
+        let out = {};
+        for (const k in value) out[k] = mpSanitizeForWire(value[k]);
+        return out;
     }
-    try {
-        const sockets = window.__trysteroGetRelaySockets();
-        const entries = Object.entries(sockets || {});
-        if (entries.length === 0) { el.innerText = 'trackers: none reported yet'; return; }
-        const states = ['connecting', 'open', 'closing', 'closed'];
-        const summary = entries.map(([url, ws]) => {
-            const host = url.replace(/^wss?:\/\//, '').split('/')[0];
-            return host + ':' + states[ws.readyState];
-        }).join('  ');
-        el.innerText = 'relays — ' + summary;
-    } catch (e) {
-        el.innerText = 'tracker status unavailable';
+    return value;
+}
+function mpRestoreFromWire(value) {
+    if (value === MP_INFINITY_MARKER) return Infinity;
+    if (Array.isArray(value)) return value.map(mpRestoreFromWire);
+    if (value && typeof value === 'object') {
+        let out = {};
+        for (const k in value) out[k] = mpRestoreFromWire(value[k]);
+        return out;
     }
-}, 1000);
+    return value;
+}
 
 function mpSetSquadMode(mode, btnEl) {
     mp.squadMode = mode;
@@ -1394,11 +1387,11 @@ function mpRunRandomizedSquadFlow() {
         // squad) is what I built as p2, and vice versa — so both devices
         // consistently render "p1 = my squad" regardless of which absolute
         // side each player actually is.
-        mp.sendMsg({ type: 'squadsReady', payload: {
+        mp.sendMsg({ type: 'squadsReady', payload: mpSanitizeForWire({
             p1Squad: built.p2Squad, p2Squad: built.p1Squad,
             p1Hex: built.p2Hex, p2Hex: built.p1Hex,
             unusedBloodbanes: built.unusedBloodbanes
-        }});
+        })});
         mpStartBattleFromPayload(built);
     } else {
         mpLog('Waiting for opponent to roll squads...');
@@ -1498,14 +1491,14 @@ function mpApplyDraftPick(cardName, side) {
 
 function mpHandleMessage(data, peerId) {
     if (data.type === 'squadsReady') {
-        mpStartBattleFromPayload(data.payload);
+        mpStartBattleFromPayload(mpRestoreFromWire(data.payload));
     } else if (data.type === 'draftPick') {
         mpApplyDraftPick(data.cardName, mp.draft ? mp.draft.turnSide : null);
     } else if (data.type === 'turnState') {
         // Opponent just finished their turn — their message is already
         // mirrored to my perspective (see mpBuildSwappedStatePayload), so
         // applying it directly makes it my turn.
-        Object.assign(gameState, data.payload);
+        Object.assign(gameState, mpRestoreFromWire(data.payload));
         abortTargetingSequence();
         if (gameState.isGameOver) {
             renderScene();
@@ -2598,13 +2591,13 @@ function finalizeActiveTurn() {
     if (gameState.isGameOver) {
         // Send final state even on game-over so the opponent's screen
         // reflects the real ending board instead of freezing stale.
-        if (mp.isMultiplayer) mp.sendMsg({ type: 'turnState', payload: mpBuildSwappedStatePayload() });
+        if (mp.isMultiplayer) mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) });
         return;
     }
     gameState.currentTurn = 2;
     if (mp.isMultiplayer) {
         renderScene();
-        mp.sendMsg({ type: 'turnState', payload: mpBuildSwappedStatePayload() });
+        mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) });
         return;
     }
     startMoveTimer(2);
