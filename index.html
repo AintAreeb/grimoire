@@ -519,6 +519,56 @@
             padding: 10px; font-size: 11px; font-weight: 600; cursor: pointer; text-transform: uppercase;
             letter-spacing: 0.04em;
         }
+        /* Quick-chat text presets */
+        .chat-fab-btn {
+            position: fixed; bottom: 18px; right: 18px; z-index: 900;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
+            color: #f7f8f8; font-size: 18px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+        .chat-modal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #111018;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 16px;
+            border-radius: 12px;
+            z-index: 1200; display: none; flex-direction: column;
+            max-width: 300px; width: 88%; max-height: 70vh;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255,255,255,0.1);
+        }
+        .chat-modal h3 {
+            margin: 0 0 10px 0; font-size: 13px; font-weight: 600; text-align: center;
+            color: #ff5555; letter-spacing: 0.02em;
+        }
+        .chat-preset-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+            overflow-y: auto;
+        }
+        .chat-preset-btn {
+            background: #1a1922; color: #f7f8f8; border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px; padding: 9px 4px; font-size: 11px; font-weight: 600;
+            cursor: pointer; flex-shrink: 0;
+        }
+        .chat-preset-btn:active { background: #ff3333; border-color: #ff3333; }
+        .chat-custom-row {
+            display: flex; gap: 6px; margin-top: 8px;
+        }
+        .chat-custom-input {
+            flex: 1; background: #0d0c14; color: #f7f8f8; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; padding: 9px 8px; font-size: 12px; min-width: 0;
+        }
+        .chat-custom-input::placeholder { color: #5a5f68; }
+        .chat-custom-send-btn {
+            background: #ff3333; color: #fff; border: none; border-radius: 8px;
+            padding: 9px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+        }
+        .chat-close-btn {
+            margin-top: 12px; background: #2a2932; color: #f7f8f8; border: none; border-radius: 8px;
+            padding: 10px; font-size: 11px; font-weight: 600; cursor: pointer; text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
         /* Tutorial ("Learn Mode") guide chat bubble */
         .tutor-bubble {
             display: flex; gap: 8px; align-items: flex-start; margin-bottom: 12px;
@@ -673,6 +723,18 @@
 
         <div class="squad-title" id="p2Title">Miasma</div>
         <div class="squad" id="p2Field"></div>
+
+        <button class="chat-fab-btn" onclick="openChatModal()" title="Quick Chat">💬</button>
+    </div>
+
+    <div id="chatModal" class="chat-modal">
+        <h3>💬 Quick Chat</h3>
+        <div class="chat-preset-grid" id="chatPresetGrid"></div>
+        <div class="chat-custom-row">
+            <input type="text" id="chatCustomInput" class="chat-custom-input" placeholder="Type a message..." maxlength="60" onkeydown="if(event.key==='Enter') sendChatCustom()">
+            <button class="chat-custom-send-btn" onclick="sendChatCustom()">Send</button>
+        </div>
+        <button class="chat-close-btn" onclick="closeChatModal()">Close</button>
     </div>
 
     <div id="guideModal" class="guide-modal">
@@ -1156,6 +1218,39 @@ function writeLog(text) {
     const log = document.getElementById('combatLog');
     log.innerHTML += `<div>» ${text}</div>`;
     log.scrollTop = log.scrollHeight;
+}
+
+// ---- Quick Chat text presets ---------------------------------------------
+const CHAT_PRESETS = [
+    'Nice!', 'GG', 'Sorry!', 'Ughh', 'Well played', 'Unlucky',
+    'Good move', "That's rough", 'Nice try', 'One more?', 'Close one!', 'Wow!'
+];
+function buildChatPresetGrid() {
+    const grid = document.getElementById('chatPresetGrid');
+    grid.innerHTML = CHAT_PRESETS.map(msg =>
+        `<button class="chat-preset-btn" onclick="sendChatPreset('${msg.replace(/'/g, "\\'")}')">${msg}</button>`
+    ).join('');
+}
+function openChatModal() {
+    buildChatPresetGrid();
+    document.getElementById('chatModal').style.display = 'flex';
+}
+function closeChatModal() {
+    document.getElementById('chatModal').style.display = 'none';
+    document.getElementById('chatCustomInput').value = '';
+}
+function sendChatCustom() {
+    const input = document.getElementById('chatCustomInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    sendChatPreset(msg);
+}
+function sendChatPreset(msg) {
+    writeLog(`🗨️ You: ${msg}`);
+    if (mp.isMultiplayer && mp.sendMsg) {
+        mp.sendMsg({ type: 'chatMsg', text: msg });
+    }
+    closeChatModal();
 }
 
 function resetToSetup() {
@@ -1916,6 +2011,8 @@ function mpHandleMessage(data, peerId) {
             else writeLog("⚡ Waiting for opponent's move...");
         }
         mpSaveSnapshot();
+    } else if (data.type === 'chatMsg') {
+        writeLog(`🗨️ Opponent: ${data.text}`);
     } else if (data.type === 'resyncResponseNone') {
         mpHideReconnectBanner();
         mpLog("Couldn't find your match anymore — it may have ended.");
