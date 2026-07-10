@@ -1187,6 +1187,12 @@ function mpTeardownConnection() {
     const codeEl = document.getElementById('mpRoomCodeDisplay');
     if (codeEl) codeEl.innerText = '';
     mpLog('');
+    // mpFindRandomOpponent() hides these while searching — always restore
+    // them on cancel/teardown, whichever flow (random or room-code) was active.
+    const connectButtons = document.getElementById('mpConnectButtons');
+    if (connectButtons) connectButtons.style.display = 'flex';
+    const joinInputRow = document.getElementById('mpJoinInputRow');
+    if (joinInputRow) joinInputRow.style.display = 'none';
 }
 
 function mpCancelConnection() {
@@ -1219,7 +1225,7 @@ function mpJoinRoom() {
 function mpConnectDirect(code) {
     mp.isMultiplayer = true;
     mpLog('Waiting for opponent to connect...');
-    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID }, 'room-' + code);
+    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID, trickleIce: true }, 'room-' + code);
     const [sendMsg, onMsg] = mp.room.makeAction('msg');
     mp.sendMsg = sendMsg;
     onMsg((data, peerId) => mpHandleMessage(data, peerId));
@@ -1247,7 +1253,7 @@ function mpFindRandomOpponent() {
     document.getElementById('mpJoinInputRow').style.display = 'none';
 
     const lobbyName = 'lobby-' + mp.squadMode;
-    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID }, lobbyName);
+    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID, trickleIce: true }, lobbyName);
     const [sendClaim, onClaim] = mp.room.makeAction('claim');
 
     const tryClaim = (peerId) => {
@@ -1284,7 +1290,7 @@ function mpFinalizeMatch(peerId) {
     const privateName = 'match-' + [window.__trysteroSelfId, peerId].sort().join('-');
     try { mp.room.leave(); } catch (e) {}
     mpLog('Opponent found! Connecting...');
-    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID }, privateName);
+    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID, trickleIce: true }, privateName);
     const [sendMsg, onMsg] = mp.room.makeAction('msg');
     mp.sendMsg = sendMsg;
     onMsg((data, pid) => mpHandleMessage(data, pid));
