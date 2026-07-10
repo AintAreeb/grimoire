@@ -564,6 +564,26 @@
             background: #ff3333; color: #fff; border: none; border-radius: 8px;
             padding: 9px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
         }
+        /* Voice chat controls */
+        .voice-bar {
+            position: fixed; bottom: 18px; left: 18px; z-index: 900;
+            display: none; flex-direction: column; gap: 8px;
+        }
+        .voice-btn {
+            width: 96px;
+            background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
+            color: #f7f8f8; font-size: 11px; font-weight: 600;
+            border-radius: 22px; padding: 10px 6px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+            cursor: pointer; user-select: none; -webkit-user-select: none;
+            touch-action: none;
+        }
+        .voice-btn.voice-btn-active {
+            background: #4af7a7; border-color: #4af7a7; color: #08130d;
+        }
+        #pttBtn.voice-btn-active {
+            background: #ff3333; border-color: #ff3333; color: #fff;
+        }
         .chat-close-btn {
             margin-top: 12px; background: #2a2932; color: #f7f8f8; border: none; border-radius: 8px;
             padding: 10px; font-size: 11px; font-weight: 600; cursor: pointer; text-transform: uppercase;
@@ -735,6 +755,13 @@
             <button class="chat-custom-send-btn" onclick="sendChatCustom()">Send</button>
         </div>
         <button class="chat-close-btn" onclick="closeChatModal()">Close</button>
+    </div>
+
+    <div id="voiceBar" class="voice-bar">
+        <button id="micToggleBtn" class="voice-btn" onclick="toggleMic()">🔇 Mic Off</button>
+        <button id="pttBtn" class="voice-btn"
+            onpointerdown="pttStart(event)" onpointerup="pttEnd(event)"
+            onpointerleave="pttEnd(event)" onpointercancel="pttEnd(event)">🗣️ Hold to Talk</button>
     </div>
 
     <div id="guideModal" class="guide-modal">
@@ -1245,6 +1272,110 @@ function sendChatCustom() {
     if (!msg) return;
     sendChatPreset(msg);
 }
+
+// ---- Voice chat (real P2P audio over the same Trystero room) -------------
+// One MediaStream is grabbed lazily (on first mic interaction) and attached
+// to whatever mp.room is currently active. Two independent controls share
+// the same underlying track:
+//   - micToggleBtn: tap to persistently turn the mic on/off (open-mic mode)
+//   - pttBtn: hold to talk — temporarily forces the track on while held,
+//     then falls back to whatever the persistent toggle state was
+const voice = {
+    localStream: null,
+    micOn: false,       // persistent "open mic" toggle state
+    pttHolding: false,  // true while the hold-to-talk button is pressed
+    remoteAudioEls: {}  // peerId -> <audio> element playing their stream
+};
+
+async function ensureMicStream() {
+    if (voice.localStream) return voice.localStream;
+    try {
+        voice.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Start muted regardless of which control triggered the permission
+        // prompt — callers set the track's enabled state right after this.
+        voice.localStream.getAudioTracks().forEach(t => t.enabled = false);
+        if (mp.room && mp.room.addStream) mp.room.addStream(voice.localStream);
+    } catch (e) {
+        writeLog('⚠️ Mic access denied or unavailable.');
+        voice.localStream = null;
+    }
+    return voice.localStream;
+}
+
+function setMicTrackEnabled(on) {
+    if (!voice.localStream) return;
+    voice.localStream.getAudioTracks().forEach(t => t.enabled = on);
+}
+
+function updateMicButtonUI() {
+    const micBtn = document.getElementById('micToggleBtn');
+    const pttBtn = document.getElementById('pttBtn');
+    if (micBtn) {
+        micBtn.innerText = voice.micOn ? '🎤 Mic On' : '🔇 Mic Off';
+        micBtn.classList.toggle('voice-btn-active', voice.micOn);
+    }
+    if (pttBtn) {
+        pttBtn.classList.toggle('voice-btn-active', voice.pttHolding);
+    }
+}
+
+async function toggleMic() {
+    const stream = await ensureMicStream();
+    if (!stream) return;
+    voice.micOn = !voice.micOn;
+    setMicTrackEnabled(voice.micOn || voice.pttHolding);
+    updateMicButtonUI();
+}
+
+async function pttStart(e) {
+    e.preventDefault();
+    const stream = await ensureMicStream();
+    if (!stream) return;
+    voice.pttHolding = true;
+    setMicTrackEnabled(true);
+    updateMicButtonUI();
+}
+
+function pttEnd(e) {
+    e.preventDefault();
+    voice.pttHolding = false;
+    setMicTrackEnabled(voice.micOn);
+    updateMicButtonUI();
+}
+
+// Called right after any mp.room is created/joined (fresh connect, random
+// match, or reconnect-after-refresh) so voice works the same way in all
+// three flows. Reveals the voice bar and wires incoming audio playback.
+function attachVoiceToRoom(room) {
+    if (!room) return;
+    room.onPeerStream = (stream, peerId) => {
+        let audioEl = voice.remoteAudioEls[peerId];
+        if (!audioEl) {
+            audioEl = new Audio();
+            audioEl.autoplay = true;
+            audioEl.playsInline = true;
+            voice.remoteAudioEls[peerId] = audioEl;
+        }
+        audioEl.srcObject = stream;
+    };
+    if (voice.localStream && room.addStream) room.addStream(voice.localStream);
+    const bar = document.getElementById('voiceBar');
+    if (bar) bar.style.display = 'flex';
+}
+
+function teardownVoice() {
+    if (voice.localStream) {
+        voice.localStream.getTracks().forEach(t => t.stop());
+        voice.localStream = null;
+    }
+    voice.micOn = false;
+    voice.pttHolding = false;
+    Object.values(voice.remoteAudioEls).forEach(el => { el.srcObject = null; });
+    voice.remoteAudioEls = {};
+    const bar = document.getElementById('voiceBar');
+    if (bar) bar.style.display = 'none';
+    updateMicButtonUI();
+}
 function sendChatPreset(msg) {
     writeLog(`🗨️ You: ${msg}`);
     if (mp.isMultiplayer && mp.sendMsg) {
@@ -1591,6 +1722,7 @@ function mpAttemptReconnectOnLoad() {
     const requestResync = (peerId) => {
         mp.peerId = peerId;
         reliable.onPeerConnected();
+        attachVoiceToRoom(mp.room);
         mp.sendMsg({ type: 'resyncRequest' }, peerId);
     };
     mp.room.onPeerJoin = requestResync;
@@ -1618,6 +1750,7 @@ function mpTeardownConnection() {
     if (mp.room) {
         try { mp.room.leave(); } catch (e) {}
     }
+    teardownVoice();
     mpClearSession();
     mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby' };
     const codeEl = document.getElementById('mpRoomCodeDisplay');
@@ -1706,6 +1839,7 @@ function mpConnectDirect(code) {
         mp.peerId = peerId;
         mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
         reliable.onPeerConnected();
+        attachVoiceToRoom(mp.room);
         mpLog('Opponent connected!');
         mpSaveSession();
         mpBeginSquadPhase();
@@ -1779,6 +1913,7 @@ function mpFinalizeMatch(peerId) {
     mp.room.onPeerJoin = pid => {
         mp.peerId = pid;
         reliable.onPeerConnected();
+        attachVoiceToRoom(mp.room);
     };
     mpSaveSession();
     mpBeginSquadPhase();
