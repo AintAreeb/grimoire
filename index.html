@@ -496,11 +496,15 @@
 </head>
 <body>
 
-    <!-- Serverless P2P networking (WebRTC via public BitTorrent trackers — no
+    <!-- Serverless P2P networking (WebRTC via the Nostr relay network — no
          backend, no signup, no server to run). Exposes joinRoom/selfId on
-         window so the regular (non-module) game script below can use them. -->
+         window so the regular (non-module) game script below can use them.
+         Switched from BitTorrent trackers to Nostr: Trystero's own docs rank
+         Nostr as the most robust discovery strategy, and Torrent kept
+         reporting its tracker sockets as "open" while peers still never
+         found each other. -->
     <script type="module">
-        import { joinRoom, selfId, getRelaySockets } from 'https://esm.run/@trystero-p2p/torrent';
+        import { joinRoom, selfId, getRelaySockets } from 'https://esm.run/@trystero-p2p/nostr';
         window.__trysteroJoinRoom = joinRoom;
         window.__trysteroSelfId = selfId;
         window.__trysteroGetRelaySockets = getRelaySockets;
@@ -1223,7 +1227,7 @@ setInterval(() => {
             const host = url.replace(/^wss?:\/\//, '').split('/')[0];
             return host + ':' + states[ws.readyState];
         }).join('  ');
-        el.innerText = 'trackers — ' + summary;
+        el.innerText = 'relays — ' + summary;
     } catch (e) {
         el.innerText = 'tracker status unavailable';
     }
