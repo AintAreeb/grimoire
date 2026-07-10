@@ -519,7 +519,7 @@
             padding: 10px; font-size: 11px; font-weight: 600; cursor: pointer; text-transform: uppercase;
             letter-spacing: 0.04em;
         }
-        /* Tutorial ("Learn Mode") bot chat bubble */
+        /* Tutorial ("Learn Mode") guide chat bubble */
         .tutor-bubble {
             display: flex; gap: 8px; align-items: flex-start; margin-bottom: 12px;
         }
@@ -821,6 +821,11 @@ let gameState = {
     botExecutionSequenceOverride: null,
     unusedBloodbanes: [],
     lastHackerSwapCategory: null,
+    // Set when Sorcerer hijacks a role whose real ability doesn't fit the
+    // normal "pick one enemy target" flow (Mage/Mecha/Hacker/Imam), so the
+    // hijacked enemy still pays the "Control Loop Feedback" cost once that
+    // longer flow finally concludes, same as every other hijacked role.
+    pendingSorcererFeedback: null,
     // Tracks the role-identity of the last mimicable move each side actually
     // landed (Killer's execute, Doctor's heal, etc), regardless of which
     // physical card performed it (a direct play OR an Actor/Dementor/
@@ -1939,6 +1944,7 @@ function abortTargetingSequence() {
     gameState.targetingMode.firstTargetId = null;
     gameState.targetingMode.metadata = null;
     gameState.targetingMode.preEffectSnapshot = null;
+    gameState.pendingSorcererFeedback = null;
     document.getElementById('targetBar').style.display = 'none';
     document.getElementById('cancelActionBtn').style.display = 'none';
     renderScene();
@@ -2289,6 +2295,86 @@ function handleDementorRoleSelection(roleName, actorId) {
     else if (roleName === 'Bartender') {
         beginBartenderCopyTargeting(dementorCard.id, 'Dementor (as Bartender)');
     }
+    else if (roleName === 'Mecha') {
+        runMechaAbilityPad(dementorCard.id);
+    }
+    else if (roleName === 'Hacker') {
+        runHackerAbilityPad(dementorCard.id);
+    }
+    else if (roleName === 'Mage') {
+        launchDementorMagePad(dementorCard);
+    }
+    else if (roleName === 'Imam') {
+        launchDementorImamPad(dementorCard);
+    }
+}
+
+// Reuses Dementor's own choice modal to present the exact real Mage
+// sub-actions (revive tiers costing Dementor's own Blood, plus Mystic
+// Purge) instead of a generic fallback effect. If nothing is actually
+// usable, the mimic does nothing and no Blood/turn is spent.
+function launchDementorMagePad(dementorCard) {
+    let container = document.getElementById('dementorOptionsContainer');
+    container.innerHTML = '';
+    let hasOption = false;
+    const addBtn = (label, bg, action) => {
+        hasOption = true;
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = bg;
+        b.innerText = label;
+        b.onclick = () => { document.getElementById('dementorChoiceModal').style.display = 'none'; action(); };
+        container.appendChild(b);
+    };
+    if (dementorCard.blood >= 1) addBtn('REVIVE 1 (1 BLOOD)', '#3f51b5', () => openTargetingOverlay(dementorCard.id, 'mage_revive_1', '🧙‍♂️ DEMENTOR AS MAGE (REVIVE 1 BLOOD)'));
+    if (dementorCard.blood >= 2) addBtn('REVIVE 2 (2 BLOOD)', '#3f51b5', () => openTargetingOverlay(dementorCard.id, 'mage_revive_2', '🧙‍♂️ DEMENTOR AS MAGE (REVIVE 2 BLOOD)'));
+    if (dementorCard.blood >= 3) addBtn('REVIVE 3 (3 BLOOD)', '#3f51b5', () => openTargetingOverlay(dementorCard.id, 'mage_revive_3', '🧙‍♂️ DEMENTOR AS MAGE (REVIVE 3 BLOOD)'));
+    if (gameState.p2.some(c => c.blood > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+        addBtn('MYSTIC PURGE', '#4a148c', () => openTargetingOverlay(dementorCard.id, 'mystic_purge', '✨ DEMENTOR AS MAGE (PURGE)'));
+    }
+    if (!hasOption) {
+        writeLog('💀 Dementor found no valid Mage action to mimic right now (needs Blood to revive or an Entity target to purge).');
+        document.getElementById('dementorChoiceModal').style.display = 'none';
+        return;
+    }
+    document.getElementById('dementorChoiceModal').style.display = 'flex';
+}
+
+// Same idea as launchDementorMagePad but for Imam: offers the Revive Block
+// (only if the bot's last attack is actually blockable) and/or Mystic
+// Purge, matching the real card exactly.
+function launchDementorImamPad(dementorCard) {
+    let container = document.getElementById('dementorOptionsContainer');
+    container.innerHTML = '';
+    let hasOption = false;
+    let canBlock = false;
+    if (gameState.botLastAttackRecord) {
+        let record = gameState.botLastAttackRecord;
+        let targetCard = gameState.p1.find(c => c.id === record.targetId);
+        let isBlockable = record.wasImprisoned || record.isDirectKill || record.isSorcererAction;
+        if (targetCard && isBlockable) canBlock = true;
+    }
+    const addBtn = (label, bg, action) => {
+        hasOption = true;
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = bg;
+        b.innerText = label;
+        b.onclick = () => { document.getElementById('dementorChoiceModal').style.display = 'none'; action(); };
+        container.appendChild(b);
+    };
+    if (canBlock) addBtn('REVIVE BLOCK', '#059669', () => executeImamDefensiveBlock(dementorCard.id));
+    if (gameState.p2.some(c => c.blood > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+        addBtn('MYSTIC PURGE', '#4a148c', () => openTargetingOverlay(dementorCard.id, 'mystic_purge', '✨ DEMENTOR AS IMAM (PURGE)'));
+    }
+    if (!hasOption) {
+        writeLog('💀 Dementor found no valid Imam action to mimic right now (no blockable attack to reverse and no Entity target to purge).');
+        document.getElementById('dementorChoiceModal').style.display = 'none';
+        return;
+    }
+    document.getElementById('dementorChoiceModal').style.display = 'flex';
 }
 
 function runSorcererAbilityPad(actorId) {
@@ -2321,6 +2407,54 @@ function handleSorcererSelection(actorId, enemyId) {
     
     let preEffectSnapshot = captureEffectSnapshot(actorId);
 
+    // Mage, Mecha, Hacker and Imam don't fit the "hijack, then click one
+    // enemy target" shape the other roles use — Mage revives a dead ally
+    // and/or purges, Mecha/Hacker run their own partner/pair pickers, and
+    // Imam reacts to the bot's last attack with no target at all. For
+    // these, hand off to the exact same flow (and exact same Blood cost)
+    // the real card uses, with the Sorcerer standing in as the actor, so
+    // the effect and its benefit match the real card precisely. The usual
+    // "Control Loop Feedback" still lands on the hijacked enemy once that
+    // flow finally concludes (see finalizeActiveTurn).
+    if (enemy.name === 'Mecha') {
+        let validAllies = gameState.p1.filter(c => c.blood > 0 && !c.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(c.name));
+        if (validAllies.length === 0) {
+            writeLog("🔮 Sorcerer found no valid Mecha fusion partner to hijack — hijack aborted.");
+            return;
+        }
+        actorCard.hasActivity = true;
+        gameState.pendingSorcererFeedback = enemy.id;
+        writeLog(`🔮 Control Sequence: channeling Mecha's power!`);
+        runMechaAbilityPad(actorCard.id);
+        return;
+    }
+    if (enemy.name === 'Hacker') {
+        let pairs = getHackerEligiblePairs(gameState.p1, gameState.p2, actorCard.id);
+        if (pairs.length === 0) {
+            writeLog("🔮 Sorcerer found no valid Hacker swap pairing to hijack — hijack aborted.");
+            return;
+        }
+        actorCard.hasActivity = true;
+        gameState.pendingSorcererFeedback = enemy.id;
+        writeLog(`🔮 Control Sequence: channeling Hacker's power!`);
+        runHackerAbilityPad(actorCard.id);
+        return;
+    }
+    if (enemy.name === 'Mage') {
+        actorCard.hasActivity = true;
+        gameState.pendingSorcererFeedback = enemy.id;
+        writeLog(`🔮 Control Sequence: channeling Mage's power!`);
+        launchSorcererMagePad(actorCard, preEffectSnapshot);
+        return;
+    }
+    if (enemy.name === 'Imam') {
+        actorCard.hasActivity = true;
+        gameState.pendingSorcererFeedback = enemy.id;
+        writeLog(`🔮 Control Sequence: channeling Imam's power!`);
+        launchSorcererImamPad(actorCard, preEffectSnapshot);
+        return;
+    }
+
     actorCard.blood = Math.max(0, actorCard.blood - 1);
     actorCard.hasActivity = true;
     actorCard.lastUsedRound = gameState.roundCount;
@@ -2336,6 +2470,80 @@ function handleSorcererSelection(actorId, enemyId) {
     bar.style.display = 'block';
     document.getElementById('cancelActionBtn').style.display = 'block';
     renderScene();
+}
+
+// Reuses the Sorcerer's own choice modal to present the exact same
+// sub-actions the real Mage card would have (revive tiers costing the
+// Sorcerer's own Blood, plus Mystic Purge), rather than a single
+// one-size-fits-all effect. If nothing is actually usable, the hijack is
+// fully refunded — no Blood or turn spent — same as a wasted-move refund
+// elsewhere in this file.
+function launchSorcererMagePad(actorCard, preEffectSnapshot) {
+    let container = document.getElementById('sorcererOptionsContainer');
+    container.innerHTML = '';
+    let hasOption = false;
+    const addBtn = (label, bg, action) => {
+        hasOption = true;
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = bg;
+        b.innerText = label;
+        b.onclick = () => { document.getElementById('sorcererChoiceModal').style.display = 'none'; action(); };
+        container.appendChild(b);
+    };
+    if (actorCard.blood >= 1) addBtn('REVIVE 1 (1 BLOOD)', '#3f51b5', () => openTargetingOverlay(actorCard.id, 'mage_revive_1', '🧙‍♂️ HIJACKED MAGE: REVIVE (1 BLOOD)'));
+    if (actorCard.blood >= 2) addBtn('REVIVE 2 (2 BLOOD)', '#3f51b5', () => openTargetingOverlay(actorCard.id, 'mage_revive_2', '🧙‍♂️ HIJACKED MAGE: REVIVE (2 BLOOD)'));
+    if (actorCard.blood >= 3) addBtn('REVIVE 3 (3 BLOOD)', '#3f51b5', () => openTargetingOverlay(actorCard.id, 'mage_revive_3', '🧙‍♂️ HIJACKED MAGE: REVIVE (3 BLOOD)'));
+    if (gameState.p2.some(c => c.blood > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+        addBtn('MYSTIC PURGE', '#4a148c', () => openTargetingOverlay(actorCard.id, 'mystic_purge', '✨ HIJACKED MAGE: PURGE'));
+    }
+    if (!hasOption) {
+        gameState.pendingSorcererFeedback = null;
+        if (preEffectSnapshot && preEffectSnapshot.actor) Object.assign(actorCard, preEffectSnapshot.actor);
+        writeLog('🔮 Sorcerer found no valid Mage action to hijack (not enough Blood and no Entity target) — hijack refunded.');
+        renderScene();
+        return;
+    }
+    document.getElementById('sorcererChoiceModal').style.display = 'flex';
+}
+
+// Same idea as launchSorcererMagePad but for Imam: offers the Revive Block
+// (only if the bot's last attack is actually blockable) and/or Mystic
+// Purge, refunding the hijack entirely if neither is usable.
+function launchSorcererImamPad(actorCard, preEffectSnapshot) {
+    let container = document.getElementById('sorcererOptionsContainer');
+    container.innerHTML = '';
+    let hasOption = false;
+    let canBlock = false;
+    if (gameState.botLastAttackRecord) {
+        let record = gameState.botLastAttackRecord;
+        let targetCard = gameState.p1.find(c => c.id === record.targetId);
+        let isBlockable = record.wasImprisoned || record.isDirectKill || record.isSorcererAction;
+        if (targetCard && isBlockable) canBlock = true;
+    }
+    const addBtn = (label, bg, action) => {
+        hasOption = true;
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = bg;
+        b.innerText = label;
+        b.onclick = () => { document.getElementById('sorcererChoiceModal').style.display = 'none'; action(); };
+        container.appendChild(b);
+    };
+    if (canBlock) addBtn('REVIVE BLOCK', '#059669', () => executeImamDefensiveBlock(actorCard.id));
+    if (gameState.p2.some(c => c.blood > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+        addBtn('MYSTIC PURGE', '#4a148c', () => openTargetingOverlay(actorCard.id, 'mystic_purge', '✨ HIJACKED IMAM: PURGE'));
+    }
+    if (!hasOption) {
+        gameState.pendingSorcererFeedback = null;
+        if (preEffectSnapshot && preEffectSnapshot.actor) Object.assign(actorCard, preEffectSnapshot.actor);
+        writeLog('🔮 Sorcerer found no valid Imam action to hijack right now — hijack refunded.');
+        renderScene();
+        return;
+    }
+    document.getElementById('sorcererChoiceModal').style.display = 'flex';
 }
 
 function runMechaAbilityPad(actorId) {
@@ -2768,6 +2976,33 @@ function processSelectedTarget(targetId) {
             applyShieldedDamage(enemy, 1);
             actorCard.blood = Math.min(actorCard.maxBlood === Infinity ? 99 : actorCard.maxBlood, actorCard.blood + 1);
             writeLog(`🔮 Control Sequence: Hood stole 1 blood from ${enemy.name}.`);
+        } else if (originalType === 'Jinn') {
+            enemy.blockedCounter = 4;
+            writeLog(`🔮 Control Sequence: Jinn locked down ${enemy.name} for the next 3 opponent actions.`);
+        } else if (originalType === 'Spy') {
+            if (enemy.name !== 'Spy') applyShieldedDamage(enemy, 1);
+            writeLog(`🔮 Control Sequence: Spy infiltrated and struck ${enemy.name}.`);
+        } else if (originalType === 'Knight') {
+            if (enemy.name === 'Spy') applyShieldedExecution(enemy);
+            else if (enemy.tag !== 'Entity') applyShieldedDamage(enemy, 1);
+            writeLog(`🔮 Control Sequence: Knight's blade struck ${enemy.name}.`);
+        } else if (originalType === 'Ninja') {
+            let enemyKilled = false;
+            if (enemy.name === 'Spy' && actorCard.blood === 1) {
+                applyShieldedExecution(enemy);
+                enemyKilled = true;
+                writeLog(`🔮 Control Sequence: Ninja's last stand assassinated Spy!`);
+            } else if (enemy.name !== 'Spy') {
+                applyShieldedDamage(enemy, 1);
+                if (enemy.blood === 0) enemyKilled = true;
+                writeLog(`🔮 Control Sequence: Ninja struck ${enemy.name}.`);
+            }
+            if (enemyKilled && !actorCard.hasKilled) {
+                actorCard.blood += 2;
+                actorCard.maxBlood = Math.max(actorCard.maxBlood, actorCard.blood);
+                actorCard.hasKilled = true;
+                writeLog(`🔮 Control Sequence: Ninja's kill grants +2 blood amplification!`);
+            }
         } else {
             applyShieldedDamage(enemy, 1);
             writeLog(`🔮 Control Sequence: ${originalType} struck ${enemy.name} for 1 damage.`);
@@ -2986,6 +3221,15 @@ function mpBuildSwappedStatePayload() {
 }
 
 function finalizeActiveTurn() {
+    if (gameState.pendingSorcererFeedback) {
+        let fbId = gameState.pendingSorcererFeedback;
+        gameState.pendingSorcererFeedback = null;
+        let hijackedCard = gameState.p1.find(c => c.id === fbId) || gameState.p2.find(c => c.id === fbId);
+        if (hijackedCard) {
+            applyShieldedDamage(hijackedCard, 1);
+            writeLog(`⚠️ Control Loop Feedback: ${hijackedCard.name} lost 1 blood.`);
+        }
+    }
     stopMoveTimer();
     gameState.forcedPlayerActorName = null;
     if (gameState.p2KnightShields > 0) gameState.p2KnightShields--;
