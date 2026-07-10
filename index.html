@@ -500,9 +500,10 @@
          backend, no signup, no server to run). Exposes joinRoom/selfId on
          window so the regular (non-module) game script below can use them. -->
     <script type="module">
-        import { joinRoom, selfId } from 'https://esm.run/@trystero-p2p/torrent';
+        import { joinRoom, selfId, getRelaySockets } from 'https://esm.run/@trystero-p2p/torrent';
         window.__trysteroJoinRoom = joinRoom;
         window.__trysteroSelfId = selfId;
+        window.__trysteroGetRelaySockets = getRelaySockets;
         window.__trysteroReady = true;
     </script>
     <script>
@@ -555,6 +556,7 @@
 
             <div id="mpRoomCodeDisplay" style="font-size:16px; font-weight:700; letter-spacing:0.1em; color:#4af7a7; margin-top:14px;"></div>
             <div id="mpStatus" style="font-size:11px; color:#8a8f98; margin-top:8px; min-height:14px;"></div>
+            <div id="mpTrackerStatus" style="font-size:9px; color:#5a5f68; margin-top:4px; min-height:12px;"></div>
             <button class="btn cancel-btn" style="max-width:260px; margin:14px auto 0 auto;" onclick="mpCancelConnection()">CANCEL</button>
         </div>
 
@@ -1168,6 +1170,33 @@ function mpLog(text) {
     const el = document.getElementById('mpStatus');
     if (el) el.innerText = text;
 }
+
+// Polls the raw WebSocket connections Trystero uses to reach the BitTorrent
+// trackers (its signaling layer — this is separate from the actual peer
+// connection). If these never reach OPEN, two devices can never discover
+// each other no matter how long you wait, which usually means the network
+// is blocking outbound WebSocket connections to the tracker hosts.
+setInterval(() => {
+    const el = document.getElementById('mpTrackerStatus');
+    if (!el) return;
+    if (!mp.isMultiplayer || !window.__trysteroGetRelaySockets) {
+        el.innerText = '';
+        return;
+    }
+    try {
+        const sockets = window.__trysteroGetRelaySockets();
+        const entries = Object.entries(sockets || {});
+        if (entries.length === 0) { el.innerText = 'trackers: none reported yet'; return; }
+        const states = ['connecting', 'open', 'closing', 'closed'];
+        const summary = entries.map(([url, ws]) => {
+            const host = url.replace(/^wss?:\/\//, '').split('/')[0];
+            return host + ':' + states[ws.readyState];
+        }).join('  ');
+        el.innerText = 'trackers — ' + summary;
+    } catch (e) {
+        el.innerText = 'tracker status unavailable';
+    }
+}, 1000);
 
 function mpSetSquadMode(mode, btnEl) {
     mp.squadMode = mode;
