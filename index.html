@@ -281,6 +281,11 @@
             box-shadow: 0 0 16px rgba(255, 51, 51, 0.4);
         }
 
+        .btn.picker-btn.picker-active {
+            background: rgba(255, 51, 51, 1);
+            box-shadow: 0 0 16px rgba(255, 51, 51, 0.4);
+        }
+
         .setup-screen { 
             text-align: center; 
             padding: 60px 20px; 
@@ -491,17 +496,69 @@
 </head>
 <body>
 
+    <!-- Serverless P2P networking (WebRTC via public BitTorrent trackers — no
+         backend, no signup, no server to run). Exposes joinRoom/selfId on
+         window so the regular (non-module) game script below can use them. -->
+    <script type="module">
+        import { joinRoom, selfId } from 'https://esm.run/trystero/torrent';
+        window.__trysteroJoinRoom = joinRoom;
+        window.__trysteroSelfId = selfId;
+        window.__trysteroReady = true;
+    </script>
+
     <div id="setupView" class="setup-screen">
         <h1>BLOODLUST</h1>
-        <div class="squad-title" style="margin-top:0; border-bottom:none;">Select Bot Difficulty</div>
-        <div id="difficultyPicker" style="display:flex; gap:8px; justify-content:center; margin:10px 0 18px 0;">
-            <button class="btn diff-btn" data-diff="easy" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('easy', this)">EASY</button>
-            <button class="btn diff-btn" data-diff="mid" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('mid', this)">MID</button>
-            <button class="btn diff-btn" data-diff="hard" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('hard', this)">HARD</button>
-            <button class="btn diff-btn" data-diff="extreme" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('extreme', this)">EXTREME</button>
+
+        <div id="topModePicker" style="display:flex; gap:8px; justify-content:center; margin:10px 0 18px 0;">
+            <button class="btn picker-btn picker-active" data-top-mode="bot" style="width:auto; padding:8px 14px; font-size:10px;" onclick="showTopMode('bot', this)">VS BOT</button>
+            <button class="btn picker-btn" data-top-mode="mp" style="width:auto; padding:8px 14px; font-size:10px;" onclick="showTopMode('mp', this)">MULTIPLAYER</button>
         </div>
-        <button class="start-btn" onclick="initializeMatch()">INITIALIZE BLOODLUST</button>
+
+        <div id="vsBotPanel">
+            <div class="squad-title" style="margin-top:0; border-bottom:none;">Select Bot Difficulty</div>
+            <div id="difficultyPicker" style="display:flex; gap:8px; justify-content:center; margin:10px 0 18px 0;">
+                <button class="btn diff-btn" data-diff="easy" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('easy', this)">EASY</button>
+                <button class="btn diff-btn" data-diff="mid" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('mid', this)">MID</button>
+                <button class="btn diff-btn" data-diff="hard" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('hard', this)">HARD</button>
+                <button class="btn diff-btn" data-diff="extreme" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('extreme', this)">EXTREME</button>
+            </div>
+            <button class="start-btn" onclick="initializeMatch()">INITIALIZE BLOODLUST</button>
+        </div>
+
+        <div id="mpPanel" style="display:none;">
+            <div class="squad-title" style="margin-top:0; border-bottom:none;">Squad Selection</div>
+            <div style="display:flex; gap:8px; justify-content:center; margin:10px 0 18px 0;">
+                <button class="btn picker-btn picker-active" data-mp-mode="random" style="width:auto; padding:8px 14px; font-size:10px;" onclick="mpSetSquadMode('random', this)">RANDOM</button>
+                <button class="btn picker-btn" data-mp-mode="draft" style="width:auto; padding:8px 14px; font-size:10px;" onclick="mpSetSquadMode('draft', this)">DRAFT</button>
+            </div>
+
+            <div id="mpConnectButtons" style="display:flex; flex-direction:column; gap:8px; max-width:260px; margin:0 auto;">
+                <button class="start-btn" style="width:100%;" onclick="mpFindRandomOpponent()">🎲 PLAY RANDOM OPPONENT</button>
+                <button class="btn" style="width:100%; padding:10px; font-size:10px;" onclick="mpCreateRoom()">CREATE ROOM</button>
+                <button class="btn" style="width:100%; padding:10px; font-size:10px;" onclick="mpShowJoinInput()">JOIN ROOM</button>
+            </div>
+
+            <div id="mpJoinInputRow" style="display:none; gap:8px; max-width:260px; margin:10px auto 0 auto;">
+                <input id="mpJoinCodeInput" placeholder="ROOM CODE" maxlength="6" style="flex:1; text-transform:uppercase; background:#0d0c14; color:#f7f8f8; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px; font-size:12px; letter-spacing:0.1em; text-align:center;">
+                <button class="btn" style="width:auto; padding:8px 12px;" onclick="mpJoinRoom()">GO</button>
+            </div>
+
+            <div id="mpRoomCodeDisplay" style="font-size:16px; font-weight:700; letter-spacing:0.1em; color:#4af7a7; margin-top:14px;"></div>
+            <div id="mpStatus" style="font-size:11px; color:#8a8f98; margin-top:8px; min-height:14px;"></div>
+            <button class="btn cancel-btn" style="max-width:260px; margin:14px auto 0 auto;" onclick="mpCancelConnection()">CANCEL</button>
+        </div>
+
         <p class="rotate-hint">Rotate your phone for the best experience</p>
+    </div>
+
+    <div id="draftView" style="display:none; text-align:center; padding:16px;">
+        <h1>DRAFT</h1>
+        <div id="draftStatus" class="turn-display"></div>
+        <div style="display:flex; justify-content:space-around; font-size:11px; color:#8a8f98; margin:8px 0 4px 0;">
+            <div>YOU: <span id="draftMyCount">0 / 10</span></div>
+            <div>OPPONENT: <span id="draftOppCount">0 / 10</span></div>
+        </div>
+        <div id="draftPoolGrid"></div>
     </div>
 
     <div id="gameView" style="display: none;">
@@ -932,6 +989,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (defaultBtn) defaultBtn.classList.add('diff-active');
 });
 
+function showTopMode(mode, btnEl) {
+    document.querySelectorAll('#topModePicker .picker-btn').forEach(b => b.classList.remove('picker-active'));
+    if (btnEl) btnEl.classList.add('picker-active');
+    document.getElementById('vsBotPanel').style.display = (mode === 'bot') ? 'block' : 'none';
+    document.getElementById('mpPanel').style.display = (mode === 'mp') ? 'block' : 'none';
+}
+
 function writeLog(text) {
     const log = document.getElementById('combatLog');
     log.innerHTML += `<div>» ${text}</div>`;
@@ -940,30 +1004,35 @@ function writeLog(text) {
 
 function resetToSetup() {
     stopMoveTimer();
+    mpTeardownConnection();
     document.getElementById('gameView').style.display = 'none';
+    document.getElementById('draftView').style.display = 'none';
     document.getElementById('setupView').style.display = 'block';
 }
 
-function initializeMatch() {
+// Builds one random, hex-balanced pair of squads exactly like the original
+// solo-mode generator did — but returns the data instead of mutating
+// gameState directly, so both the solo bot flow and the multiplayer
+// "Random" squad mode can share this same logic.
+function buildRandomBalancedSquads() {
     let balanced = false;
     let playerSquad = [], botSquad = [];
     let finalPHexSum = 0, finalBHexSum = 0;
-    
+    let unusedBloodbanes = [];
+
     const bloodbanes = CARD_POOL.filter(c => c.category === 'Bloodbane');
     const bloodbornes = CARD_POOL.filter(c => c.category === 'Bloodborne');
     const heroics = CARD_POOL.filter(c => c.category === 'Heroic');
 
     while (!balanced) {
         playerSquad = []; botSquad = [];
-        
-        // Shuffle helper array
+
         const shuffle = (array) => array.map(a => ({ sort: Math.random(), value: a })).sort((a, b) => a.sort - b.sort).map(a => a.value);
 
         let shuffledBanes = shuffle([...bloodbanes]);
         let shuffledBornes = shuffle([...bloodbornes]);
         let shuffledHeroics = shuffle([...heroics]);
 
-        // Exact requirements: 5 Bloodbanes, 4 Bloodbornes, 1 Heroic per squad
         let pBanes = shuffledBanes.slice(0, 5);
         let bBanes = shuffledBanes.slice(5, 10);
 
@@ -975,14 +1044,14 @@ function initializeMatch() {
 
         let pRaw = [...pBanes, ...pBornes, ...pHeroics];
         let bRaw = [...bBanes, ...bBornes, ...bHeroics];
-        gameState.unusedBloodbanes = shuffledBanes.slice(10, 12);
+        unusedBloodbanes = shuffledBanes.slice(10, 12);
 
         pRaw.forEach((pCard, idx) => {
             playerSquad.push({...pCard, id: `p1_${idx}`, blood: pCard.maxBlood, imprisoned: false, hasActivity: false, hasKilled: false, poisoned: false, mechaCooldown: 0, lastUsedRound: 0, blockedCounter: 0, bartenderState: 'random', releasedImprisoned: false});
         });
 
         bRaw.forEach((bCard, idx) => {
-            botSquad.push({...bCard, id: `p2_${idx}`, blood: bCard.maxBlood, imprisoned: false, hasActivity: false, hasKilled: false, poisoned: false, mechaCooldown: 0, lastUsedRound: 0, blockedCounter: 0, bartenderState: 'random'});
+            botSquad.push({...bCard, id: `p2_${idx}`, blood: bCard.maxBlood, imprisoned: false, hasActivity: false, hasKilled: false, poisoned: false, mechaCooldown: 0, lastUsedRound: 0, blockedCounter: 0, bartenderState: 'random', releasedImprisoned: false});
         });
 
         let pSum = playerSquad.reduce((sum, c) => c.maxBlood === Infinity ? sum + 3 : sum + c.hex, 0);
@@ -993,14 +1062,21 @@ function initializeMatch() {
             finalBHexSum = bSum;
         }
     }
+    return { p1Squad: playerSquad, p2Squad: botSquad, p1Hex: finalPHexSum, p2Hex: finalBHexSum, unusedBloodbanes };
+}
 
+// Shared tail-end of match setup: takes two fully-built squads (from the solo
+// random generator, the multiplayer randomized-sync flow, or the multiplayer
+// draft) and puts the game on screen. `opts.vsBot` distinguishes the original
+// solo-vs-bot flow (which auto-kicks the bot's turn) from multiplayer.
+function startBattleWithSquads(p1Squad, p2Squad, p1Hex, p2Hex, opts = {}) {
     gameState.roundCount = 1;
-    gameState.p1 = playerSquad;
-    gameState.p2 = botSquad;
-    gameState.p1HexTotal = finalPHexSum;
-    gameState.p2HexTotal = finalBHexSum;
-    // Lower total hex level moves first. Ties default to the player.
-    gameState.currentTurn = (finalBHexSum < finalPHexSum) ? 2 : 1;
+    gameState.p1 = p1Squad;
+    gameState.p2 = p2Squad;
+    gameState.p1HexTotal = p1Hex;
+    gameState.p2HexTotal = p2Hex;
+    // Lower total hex level moves first. Ties default to side 1.
+    gameState.currentTurn = (p2Hex < p1Hex) ? 2 : 1;
     gameState.isGameOver = false;
     gameState.p1KnightShields = 0;
     gameState.p2KnightShields = 0;
@@ -1013,24 +1089,302 @@ function initializeMatch() {
     abortTargetingSequence();
 
     document.getElementById('setupView').style.display = 'none';
+    document.getElementById('draftView').style.display = 'none';
     document.getElementById('gameView').style.display = 'block';
     document.getElementById('resetButton').style.display = 'none';
     document.getElementById('rematchButton').style.display = 'none';
     document.getElementById('combatLog').innerHTML = '';
-    
+
     writeLog("Engine Integrated. BloodLust allocated exactly: 5 Bloodbanes, 4 Bloodbornes, 1 Heroic.");
-    writeLog(`⬡ Hex totals — Your Squad: ${finalPHexSum} | Bot Squad: ${finalBHexSum}.`);
-    if (finalPHexSum === finalBHexSum) {
-        writeLog("⬡ Hex totals are tied — you move first.");
+    if (opts.vsBot) {
+        writeLog(`⬡ Hex totals — Your Squad: ${p1Hex} | Bot Squad: ${p2Hex}.`);
+        if (p1Hex === p2Hex) {
+            writeLog("⬡ Hex totals are tied — you move first.");
+        } else {
+            writeLog(gameState.currentTurn === 1 ? "⬡ Your squad has the lower hex total and moves first!" : "⬡ The bot's squad has the lower hex total and moves first!");
+        }
     } else {
-        writeLog(gameState.currentTurn === 1 ? "⬡ Your squad has the lower hex total and moves first!" : "⬡ The bot's squad has the lower hex total and moves first!");
+        writeLog(`⬡ Hex totals — Squad 1: ${p1Hex} | Squad 2: ${p2Hex}.`);
+        if (p1Hex === p2Hex) {
+            writeLog("⬡ Hex totals are tied — Squad 1 moves first.");
+        } else {
+            writeLog(gameState.currentTurn === 1 ? "⬡ Squad 1 has the lower hex total and moves first!" : "⬡ Squad 2 has the lower hex total and moves first!");
+        }
     }
     renderScene();
-    if (gameState.currentTurn === 2) {
-        startMoveTimer(2);
-        setTimeout(processBotTurnRoutine, 800);
+
+    if (opts.vsBot) {
+        if (gameState.currentTurn === 2) {
+            startMoveTimer(2);
+            setTimeout(processBotTurnRoutine, 800);
+        } else {
+            startMoveTimer(1);
+        }
     } else {
-        startMoveTimer(1);
+        // PHASE 3 TODO: this is where "whichever side isn't mySide" should
+        // start listening for the opponent's networked move instead of
+        // sitting idle. Move relay isn't wired up yet — see mp.sendMsg /
+        // mpHandleMessage for where that plugs in next.
+        startMoveTimer(gameState.currentTurn);
+        writeLog("⚡ Multiplayer squads are locked in. Live move relay is coming in the next update.");
+    }
+}
+
+function initializeMatch() {
+    mp.isMultiplayer = false;
+    let built = buildRandomBalancedSquads();
+    gameState.unusedBloodbanes = built.unusedBloodbanes;
+    startBattleWithSquads(built.p1Squad, built.p2Squad, built.p1Hex, built.p2Hex, { vsBot: true });
+}
+
+// =====================================================================
+// MULTIPLAYER — serverless P2P via Trystero (WebRTC over public BitTorrent
+// trackers). No backend, no account, no server to run or pay for.
+// =====================================================================
+const MP_APP_ID = 'bloodlust-cardgame-v1';
+
+let mp = {
+    isMultiplayer: false,
+    room: null,
+    sendMsg: null,
+    peerId: null,
+    mySide: null,       // 1 or 2, assigned once an opponent connects
+    squadMode: 'random', // 'random' | 'draft'
+    matched: false,
+    draft: null
+};
+
+function mpLog(text) {
+    const el = document.getElementById('mpStatus');
+    if (el) el.innerText = text;
+}
+
+function mpSetSquadMode(mode, btnEl) {
+    mp.squadMode = mode;
+    document.querySelectorAll('#mpPanel .picker-btn[data-mp-mode]').forEach(b => b.classList.remove('picker-active'));
+    if (btnEl) btnEl.classList.add('picker-active');
+}
+
+function mpShowJoinInput() {
+    document.getElementById('mpJoinInputRow').style.display = 'flex';
+}
+
+function mpTeardownConnection() {
+    if (mp.room) {
+        try { mp.room.leave(); } catch (e) {}
+    }
+    mp = { isMultiplayer: false, room: null, sendMsg: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null };
+    const codeEl = document.getElementById('mpRoomCodeDisplay');
+    if (codeEl) codeEl.innerText = '';
+    mpLog('');
+}
+
+function mpCancelConnection() {
+    mpTeardownConnection();
+}
+
+function mpReady() {
+    if (!window.__trysteroReady) {
+        mpLog('Still loading the networking library — try again in a second.');
+        return false;
+    }
+    return true;
+}
+
+// ---- Create / Join by room code -----------------------------------------
+function mpCreateRoom() {
+    if (!mpReady()) return;
+    const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+    document.getElementById('mpRoomCodeDisplay').innerText = 'CODE: ' + code;
+    mpConnectDirect(code);
+}
+
+function mpJoinRoom() {
+    if (!mpReady()) return;
+    const code = document.getElementById('mpJoinCodeInput').value.trim().toUpperCase();
+    if (!code) { mpLog('Enter the room code your friend shared.'); return; }
+    mpConnectDirect(code);
+}
+
+function mpConnectDirect(code) {
+    mp.isMultiplayer = true;
+    mpLog('Waiting for opponent to connect...');
+    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID }, 'room-' + code);
+    const [sendMsg, onMsg] = mp.room.makeAction('msg');
+    mp.sendMsg = sendMsg;
+    onMsg((data, peerId) => mpHandleMessage(data, peerId));
+    mp.room.onPeerJoin(peerId => {
+        mp.peerId = peerId;
+        mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
+        mpLog('Opponent connected!');
+        mpBeginSquadPhase();
+    });
+}
+
+// ---- Random Opponent matchmaking (no room code needed) -------------------
+// Everyone who clicks this for a given squad mode joins the same public
+// "lobby" room for that mode. Whoever has the lexicographically lower peer
+// ID proposes a match to each peer they see; the other side accepts the
+// first proposal it gets and rejects any later ones. Once accepted, both
+// sides independently compute the same private room name (sorted join of
+// both IDs) and move there — no coordination message needed for that part.
+function mpFindRandomOpponent() {
+    if (!mpReady()) return;
+    mp.isMultiplayer = true;
+    mp.matched = false;
+    mpLog('Searching for an opponent...');
+    document.getElementById('mpConnectButtons').style.display = 'none';
+    document.getElementById('mpJoinInputRow').style.display = 'none';
+
+    const lobbyName = 'lobby-' + mp.squadMode;
+    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID }, lobbyName);
+    const [sendClaim, onClaim] = mp.room.makeAction('claim');
+
+    const tryClaim = (peerId) => {
+        if (mp.matched) return;
+        if (window.__trysteroSelfId < peerId) sendClaim({ t: 'propose' }, peerId);
+    };
+
+    onClaim((data, peerId) => {
+        if (mp.isMultiplayer === false) return; // cancelled
+        if (data.t === 'propose') {
+            if (!mp.matched) {
+                mp.matched = true;
+                sendClaim({ t: 'accept' }, peerId);
+                mpFinalizeMatch(peerId);
+            } else {
+                sendClaim({ t: 'reject' }, peerId);
+            }
+        } else if (data.t === 'accept') {
+            if (!mp.matched) {
+                mp.matched = true;
+                mpFinalizeMatch(peerId);
+            }
+        }
+        // 'reject' -> stay in the lobby, we'll try the next peer who joins
+    });
+
+    mp.room.onPeerJoin(peerId => tryClaim(peerId));
+    Object.keys(mp.room.getPeers()).forEach(tryClaim);
+}
+
+function mpFinalizeMatch(peerId) {
+    mp.peerId = peerId;
+    mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
+    const privateName = 'match-' + [window.__trysteroSelfId, peerId].sort().join('-');
+    try { mp.room.leave(); } catch (e) {}
+    mpLog('Opponent found! Connecting...');
+    mp.room = window.__trysteroJoinRoom({ appId: MP_APP_ID }, privateName);
+    const [sendMsg, onMsg] = mp.room.makeAction('msg');
+    mp.sendMsg = sendMsg;
+    onMsg((data, pid) => mpHandleMessage(data, pid));
+    mpBeginSquadPhase();
+}
+
+// ---- Squad phase: routes to draft or randomized-sync ---------------------
+function mpBeginSquadPhase() {
+    document.getElementById('setupView').style.display = 'none';
+    if (mp.squadMode === 'draft') {
+        mpStartDraft();
+    } else {
+        mpRunRandomizedSquadFlow();
+    }
+}
+
+function mpRunRandomizedSquadFlow() {
+    if (mp.mySide === 1) {
+        let built = buildRandomBalancedSquads();
+        mp.sendMsg({ type: 'squadsReady', payload: built });
+        mpStartBattleFromPayload(built);
+    } else {
+        mpLog('Waiting for opponent to roll squads...');
+        document.getElementById('setupView').style.display = 'block';
+        document.getElementById('mpPanel').style.display = 'block';
+    }
+}
+
+function mpStartBattleFromPayload(built) {
+    gameState.unusedBloodbanes = built.unusedBloodbanes || [];
+    document.getElementById('draftView').style.display = 'none';
+    startBattleWithSquads(built.p1Squad, built.p2Squad, built.p1Hex, built.p2Hex, { vsBot: false });
+}
+
+// ---- Draft mode ------------------------------------------------------------
+function mpMaterializeSquad(rawCards, sidePrefix) {
+    return rawCards.map((c, idx) => ({
+        ...c, id: `${sidePrefix}_${idx}`, blood: c.maxBlood, imprisoned: false, hasActivity: false,
+        hasKilled: false, poisoned: false, mechaCooldown: 0, lastUsedRound: 0, blockedCounter: 0,
+        bartenderState: 'random', releasedImprisoned: false
+    }));
+}
+
+function mpCategoryCap(category) {
+    if (category === 'Bloodbane') return 5;
+    if (category === 'Bloodborne') return 4;
+    return 1; // Heroic
+}
+
+function mpStartDraft() {
+    mp.draft = { pool: CARD_POOL.map(c => ({...c})), p1Picks: [], p2Picks: [], turnSide: 1 };
+    document.getElementById('draftView').style.display = 'block';
+    mpRenderDraft();
+}
+
+function mpRenderDraft() {
+    const d = mp.draft;
+    const isMyTurn = d.turnSide === mp.mySide;
+    const categories = ['Bloodbane', 'Bloodborne', 'Heroic'];
+    let html = '';
+    categories.forEach(cat => {
+        const cardsInCat = d.pool.filter(c => c.category === cat);
+        if (cardsInCat.length === 0) return;
+        const turnPicks = d.turnSide === 1 ? d.p1Picks : d.p2Picks;
+        const roomLeft = turnPicks.filter(c => c.category === cat).length < mpCategoryCap(cat);
+        html += `<div class="squad-title" style="margin-top:12px;">${cat}</div><div class="squad" style="grid-template-columns:repeat(3, minmax(0,1fr));">`;
+        cardsInCat.forEach(c => {
+            const canPick = isMyTurn && roomLeft;
+            html += `<button class="btn" style="height:auto; padding:10px 4px; ${canPick ? '' : 'opacity:0.35;'}" ${canPick ? `onclick="mpMakeDraftPick('${c.name}')"` : 'disabled'}>${c.name}</button>`;
+        });
+        html += '</div>';
+    });
+    document.getElementById('draftPoolGrid').innerHTML = html;
+    document.getElementById('draftStatus').innerText = isMyTurn ? "Your pick — choose a card" : "Opponent is picking...";
+    document.getElementById('draftMyCount').innerText = (mp.mySide === 1 ? d.p1Picks.length : d.p2Picks.length) + ' / 10';
+    document.getElementById('draftOppCount').innerText = (mp.mySide === 1 ? d.p2Picks.length : d.p1Picks.length) + ' / 10';
+}
+
+function mpMakeDraftPick(cardName) {
+    if (!mp.draft || mp.draft.turnSide !== mp.mySide) return;
+    mpApplyDraftPick(cardName, mp.mySide);
+    mp.sendMsg({ type: 'draftPick', cardName });
+}
+
+function mpApplyDraftPick(cardName, side) {
+    const d = mp.draft;
+    if (!d) return;
+    const idx = d.pool.findIndex(c => c.name === cardName);
+    if (idx === -1) return;
+    const card = d.pool.splice(idx, 1)[0];
+    if (side === 1) d.p1Picks.push(card); else d.p2Picks.push(card);
+    d.turnSide = (side === 1) ? 2 : 1;
+
+    if (d.p1Picks.length === 10 && d.p2Picks.length === 10) {
+        const p1Squad = mpMaterializeSquad(d.p1Picks, 'p1');
+        const p2Squad = mpMaterializeSquad(d.p2Picks, 'p2');
+        const p1Hex = p1Squad.reduce((s, c) => c.maxBlood === Infinity ? s + 3 : s + c.hex, 0);
+        const p2Hex = p2Squad.reduce((s, c) => c.maxBlood === Infinity ? s + 3 : s + c.hex, 0);
+        gameState.unusedBloodbanes = d.pool.filter(c => c.category === 'Bloodbane').map(c => ({...c}));
+        mpStartBattleFromPayload({ p1Squad, p2Squad, p1Hex, p2Hex, unusedBloodbanes: gameState.unusedBloodbanes });
+    } else {
+        mpRenderDraft();
+    }
+}
+
+function mpHandleMessage(data, peerId) {
+    if (data.type === 'squadsReady') {
+        mpStartBattleFromPayload(data.payload);
+    } else if (data.type === 'draftPick') {
+        mpApplyDraftPick(data.cardName, mp.draft ? mp.draft.turnSide : null);
     }
 }
 
