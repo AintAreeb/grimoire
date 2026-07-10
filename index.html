@@ -500,10 +500,20 @@
          backend, no signup, no server to run). Exposes joinRoom/selfId on
          window so the regular (non-module) game script below can use them. -->
     <script type="module">
-        import { joinRoom, selfId } from 'https://esm.run/trystero/torrent';
+        import { joinRoom, selfId } from 'https://esm.run/@trystero-p2p/torrent';
         window.__trysteroJoinRoom = joinRoom;
         window.__trysteroSelfId = selfId;
         window.__trysteroReady = true;
+    </script>
+    <script>
+        // Fallback: if the module import above fails outright (network error,
+        // ad-blocker, etc.) instead of just being slow, surface a real error
+        // after a few seconds instead of leaving the user staring at "still loading".
+        setTimeout(() => {
+            if (!window.__trysteroReady) {
+                console.error('Trystero failed to load — check the Network/Console tab for the actual import error.');
+            }
+        }, 5000);
     </script>
 
     <div id="setupView" class="setup-screen">
