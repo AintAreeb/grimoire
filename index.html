@@ -762,6 +762,7 @@
         <button id="pttBtn" class="voice-btn"
             onpointerdown="pttStart(event)" onpointerup="pttEnd(event)"
             onpointerleave="pttEnd(event)" onpointercancel="pttEnd(event)">🗣️ Hold to Talk</button>
+        <button id="muteOpponentBtn" class="voice-btn" onclick="toggleOpponentMute()">🔊 Opponent</button>
     </div>
 
     <div id="guideModal" class="guide-modal">
@@ -1228,11 +1229,65 @@ function setDifficulty(level, btnEl) {
     document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('diff-active'));
     if (btnEl) btnEl.classList.add('diff-active');
 }
+
+// ============================================================================
+// IN-APP HISTORY / BACK-BUTTON HANDLING
+// Without this, the browser/device back gesture has nothing of ours in its
+// history stack, so pressing it exits the whole page/app instead of backing
+// out of a match or closing a modal. We keep a tiny 2-level model —
+// {screen: 'setup'|'game', modal: null|'guide'|'chat'} — synced to
+// history.state. Entering a match pushes 'game' once; opening guide/chat
+// pushes a modal flag on top of whatever screen we're on. The popstate
+// handler is the single source of truth that reconciles the DOM to
+// whatever state the user has navigated back (or forward) to.
+let bl_hist = { screen: 'setup', modal: null };
+function bl_pushState(patch) {
+    bl_hist = { ...bl_hist, ...patch };
+    try { history.pushState({ ...bl_hist }, '', location.href); } catch (e) {}
+}
+function bl_replaceState(patch) {
+    bl_hist = { ...bl_hist, ...patch };
+    try { history.replaceState({ ...bl_hist }, '', location.href); } catch (e) {}
+}
+// Called once a match (draft or battle) is actually on screen, whether via
+// live setup flow or a page-reload restore. No-ops if already there so
+// draft -> battle doesn't push a second entry.
+function bl_enterGameScreen() {
+    if (bl_hist.screen !== 'game') bl_pushState({ screen: 'game', modal: null });
+}
+// Used specifically by the boot-time restore paths (multiplayer reconnect,
+// solo snapshot restore) to guarantee a 'setup' entry always sits directly
+// behind the restored 'game' entry, even on a totally fresh tab/session
+// that has no earlier history of its own.
+function bl_bootIntoGameScreen() {
+    bl_replaceState({ screen: 'setup', modal: null });
+    bl_pushState({ screen: 'game', modal: null });
+}
+function bl_hideModalUI(name) {
+    const ids = { guide: 'guideModal', chat: 'chatModal' };
+    const el = document.getElementById(ids[name]);
+    if (el) el.style.display = 'none';
+}
+window.addEventListener('popstate', (e) => {
+    const state = e.state || { screen: 'setup', modal: null };
+    const prevModal = bl_hist.modal;
+    bl_hist = state;
+    if (prevModal && prevModal !== state.modal) bl_hideModalUI(prevModal);
+    if (state.screen === 'setup') {
+        const setupHidden = document.getElementById('setupView').style.display === 'none';
+        if (setupHidden) resetToSetup(true);
+    }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
+    bl_replaceState({ screen: 'setup', modal: null });
     const defaultBtn = document.querySelector(`.diff-btn[data-diff="${gameState.difficulty}"]`);
     if (defaultBtn) defaultBtn.classList.add('diff-active');
-    mpAttemptReconnectOnLoad();
+    if (!mpAttemptReconnectOnLoad()) {
+        attemptSoloRestoreOnLoad();
+    }
 });
+
 
 function showTopMode(mode, btnEl) {
     document.querySelectorAll('#topModePicker .picker-btn').forEach(b => b.classList.remove('picker-active'));
@@ -1261,10 +1316,12 @@ function buildChatPresetGrid() {
 function openChatModal() {
     buildChatPresetGrid();
     document.getElementById('chatModal').style.display = 'flex';
+    bl_pushState({ modal: 'chat' });
 }
 function closeChatModal() {
     document.getElementById('chatModal').style.display = 'none';
     document.getElementById('chatCustomInput').value = '';
+    if (bl_hist.modal === 'chat') history.back();
 }
 function sendChatCustom() {
     const input = document.getElementById('chatCustomInput');
@@ -1282,9 +1339,10 @@ function sendChatCustom() {
 //     then falls back to whatever the persistent toggle state was
 const voice = {
     localStream: null,
-    micOn: false,       // persistent "open mic" toggle state
-    pttHolding: false,  // true while the hold-to-talk button is pressed
-    remoteAudioEls: {}  // peerId -> <audio> element playing their stream
+    micOn: false,        // persistent "open mic" toggle state
+    pttHolding: false,   // true while the hold-to-talk button is pressed
+    opponentMuted: false, // true when you've muted incoming opponent audio
+    remoteAudioEls: {}   // peerId -> <audio> element playing their stream
 };
 
 async function ensureMicStream() {
@@ -1310,6 +1368,7 @@ function setMicTrackEnabled(on) {
 function updateMicButtonUI() {
     const micBtn = document.getElementById('micToggleBtn');
     const pttBtn = document.getElementById('pttBtn');
+    const oppBtn = document.getElementById('muteOpponentBtn');
     if (micBtn) {
         micBtn.innerText = voice.micOn ? '🎤 Mic On' : '🔇 Mic Off';
         micBtn.classList.toggle('voice-btn-active', voice.micOn);
@@ -1317,6 +1376,16 @@ function updateMicButtonUI() {
     if (pttBtn) {
         pttBtn.classList.toggle('voice-btn-active', voice.pttHolding);
     }
+    if (oppBtn) {
+        oppBtn.innerText = voice.opponentMuted ? '🔇 Opponent' : '🔊 Opponent';
+        oppBtn.classList.toggle('voice-btn-active', voice.opponentMuted);
+    }
+}
+
+function toggleOpponentMute() {
+    voice.opponentMuted = !voice.opponentMuted;
+    Object.values(voice.remoteAudioEls).forEach(el => { el.muted = voice.opponentMuted; });
+    updateMicButtonUI();
 }
 
 async function toggleMic() {
@@ -1356,6 +1425,7 @@ function attachVoiceToRoom(room) {
             audioEl.playsInline = true;
             voice.remoteAudioEls[peerId] = audioEl;
         }
+        audioEl.muted = voice.opponentMuted;
         audioEl.srcObject = stream;
     };
     if (voice.localStream && room.addStream) room.addStream(voice.localStream);
@@ -1370,6 +1440,7 @@ function teardownVoice() {
     }
     voice.micOn = false;
     voice.pttHolding = false;
+    voice.opponentMuted = false;
     Object.values(voice.remoteAudioEls).forEach(el => { el.srcObject = null; });
     voice.remoteAudioEls = {};
     const bar = document.getElementById('voiceBar');
@@ -1384,12 +1455,27 @@ function sendChatPreset(msg) {
     closeChatModal();
 }
 
-function resetToSetup() {
+function resetToSetup(fromPopstate) {
     stopMoveTimer();
     mpTeardownConnection();
+    clearSoloSnapshot();
     document.getElementById('gameView').style.display = 'none';
     document.getElementById('draftView').style.display = 'none';
     document.getElementById('setupView').style.display = 'block';
+    bl_hideModalUI('guide');
+    bl_hideModalUI('chat');
+    if (!fromPopstate) {
+        // A UI button triggered this (not the back button) — collapse
+        // whatever "game" history entry we pushed so a later physical
+        // back press doesn't just replay it.
+        if (bl_hist.screen !== 'setup') {
+            history.back();
+        } else {
+            bl_replaceState({ screen: 'setup', modal: null });
+        }
+    } else {
+        bl_hist = { screen: 'setup', modal: null };
+    }
 }
 
 // Builds one random, hex-balanced pair of squads exactly like the original
@@ -1476,6 +1562,7 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Hex, p2Hex, opts = {}) {
     document.getElementById('resetButton').style.display = 'none';
     document.getElementById('rematchButton').style.display = 'none';
     document.getElementById('combatLog').innerHTML = '';
+    bl_enterGameScreen();
 
     writeLog("Engine Integrated. BloodLust allocated exactly: 5 Bloodbanes, 4 Bloodbornes, 1 Heroic.");
     if (opts.vsBot) {
@@ -1518,6 +1605,7 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Hex, p2Hex, opts = {}) {
 
 function initializeMatch() {
     mp.isMultiplayer = false;
+    mpClearSession();
     let built = buildRandomBalancedSquads();
     gameState.unusedBloodbanes = built.unusedBloodbanes;
     startBattleWithSquads(built.p1Squad, built.p2Squad, built.p1Hex, built.p2Hex, { vsBot: true });
@@ -1634,6 +1722,61 @@ function mpSaveSnapshot() {
     } catch (e) {}
 }
 
+// ---- Solo (vs bot) refresh persistence ------------------------------------
+// Bot matches have no peer to resync from, so unlike multiplayer this is the
+// ONLY copy of progress — saved after every render and restored wholesale on
+// reload, including resuming a bot turn that was mid-flight when the page
+// was left.
+const BL_SOLO_SNAPSHOT_KEY = 'bloodlust_solo_snapshot';
+const BL_SOLO_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+function saveSoloSnapshot() {
+    if (mp.isMultiplayer) return;
+    if (document.getElementById('gameView').style.display === 'none') return;
+    try {
+        localStorage.setItem(BL_SOLO_SNAPSHOT_KEY, JSON.stringify({
+            gameState: mpSanitizeForWire(gameState),
+            ts: Date.now()
+        }));
+    } catch (e) {}
+}
+
+function clearSoloSnapshot() {
+    try { localStorage.removeItem(BL_SOLO_SNAPSHOT_KEY); } catch (e) {}
+}
+
+// Runs once on page load, only if there's no multiplayer session to restore
+// instead. Returns true if a solo match was actually resumed.
+function attemptSoloRestoreOnLoad() {
+    try {
+        if (localStorage.getItem(BL_SESSION_KEY)) return false;
+        const raw = localStorage.getItem(BL_SOLO_SNAPSHOT_KEY);
+        if (!raw) return false;
+        const snap = JSON.parse(raw);
+        if (!snap || !snap.gameState) return false;
+        if (Date.now() - (snap.ts || 0) > BL_SOLO_MAX_AGE_MS) { clearSoloSnapshot(); return false; }
+
+        mp.isMultiplayer = false;
+        Object.assign(gameState, mpRestoreFromWire(snap.gameState));
+        document.getElementById('setupView').style.display = 'none';
+        document.getElementById('draftView').style.display = 'none';
+        document.getElementById('gameView').style.display = 'block';
+        bl_bootIntoGameScreen();
+        abortTargetingSequence();
+        renderScene();
+        if (!gameState.isGameOver) {
+            if (gameState.currentTurn === 1) {
+                startMoveTimer(1);
+            } else {
+                // It was the bot's turn when we left — let it carry on.
+                startMoveTimer(2);
+                setTimeout(processBotTurnRoutine, 800);
+            }
+        }
+        return true;
+    } catch (e) { return false; }
+}
+
 // Mirrors my current battle state to the opponent's perspective, same as
 // mpBuildSwappedStatePayload for a normal turn handoff, but also includes
 // whose turn it actually is right now (a plain turnState message always
@@ -1678,18 +1821,19 @@ function mpAttemptReconnectOnLoad() {
     let session;
     try {
         const raw = localStorage.getItem(BL_SESSION_KEY);
-        if (!raw) return;
+        if (!raw) return false;
         session = JSON.parse(raw);
-    } catch (e) { return; }
-    if (!session || !session.roomName || !session.mySide) return;
-    if (Date.now() - (session.ts || 0) > BL_SESSION_MAX_AGE_MS) { mpClearSession(); return; }
-    if (!window.__trysteroReady) { setTimeout(mpAttemptReconnectOnLoad, 300); return; }
+    } catch (e) { return false; }
+    if (!session || !session.roomName || !session.mySide) return false;
+    if (Date.now() - (session.ts || 0) > BL_SESSION_MAX_AGE_MS) { mpClearSession(); return false; }
+    if (!window.__trysteroReady) { setTimeout(mpAttemptReconnectOnLoad, 300); return false; }
 
     mp.isMultiplayer = true;
     mp.mySide = session.mySide;
     mp.squadMode = session.squadMode;
     mp.roomName = session.roomName;
     mpShowReconnectBanner();
+    bl_bootIntoGameScreen();
 
     // Best-effort immediate restore from our own last-known snapshot.
     try {
@@ -1734,6 +1878,7 @@ function mpAttemptReconnectOnLoad() {
     setTimeout(() => {
         mpHideReconnectBanner();
     }, 8000);
+    return true;
 }
 
 function mpSetSquadMode(mode, btnEl) {
@@ -1829,6 +1974,7 @@ function mpJoinRoom() {
 
 function mpConnectDirect(code) {
     mp.isMultiplayer = true;
+    clearSoloSnapshot();
     mp.roomName = 'room-' + code;
     mpLog('Waiting for opponent to connect...');
     mp.room = window.__trysteroJoinRoom(MP_CONFIG, mp.roomName);
@@ -1856,6 +2002,7 @@ function mpConnectDirect(code) {
 function mpFindRandomOpponent() {
     if (!mpReady()) return;
     mp.isMultiplayer = true;
+    clearSoloSnapshot();
     mp.matched = false;
     mpLog('Searching for an opponent...');
     document.getElementById('mpConnectButtons').style.display = 'none';
@@ -2007,6 +2154,7 @@ function mpStartDraft() {
     };
     mp.phase = 'draft';
     document.getElementById('draftView').style.display = 'block';
+    bl_enterGameScreen();
     mpRenderDraft();
     mpSaveSnapshot();
 }
@@ -4405,6 +4553,7 @@ function renderScene() {
         `;
     });
     document.getElementById('p2Field').innerHTML = p2Html;
+    saveSoloSnapshot();
 }
 
 // Holds the pending set of buttons for whichever card currently has its
@@ -4637,9 +4786,11 @@ function openGuideModal() {
     renderTutorStep();
     switchGuideTab('directory');
     document.getElementById('guideModal').style.display = 'flex';
+    bl_pushState({ modal: 'guide' });
 }
 function closeGuideModal() {
     document.getElementById('guideModal').style.display = 'none';
+    if (bl_hist.modal === 'guide') history.back();
 }
 function switchGuideTab(tab) {
     document.getElementById('guideTabDirectoryBtn').classList.toggle('guide-tab-active', tab === 'directory');
