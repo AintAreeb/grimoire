@@ -352,6 +352,16 @@
             border-color: rgba(0, 170, 0, 0.4);
         }
 
+        .back-fab-btn {
+            position: fixed; top: 14px; left: 14px; z-index: 950;
+            width: 36px; height: 36px; border-radius: 50%;
+            background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
+            color: #f7f8f8; font-size: 16px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+        .back-fab-btn:active { background: #2a2932; }
+
         /* Glassmorphic Overlay Modals */
         .bartender-modal {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -760,6 +770,7 @@
     </div>
 
     <div id="draftView" style="display:none; text-align:center; padding:16px;">
+        <button class="back-fab-btn" onclick="blConfirmBackFromMatch()" title="Back">←</button>
         <h1>DRAFT</h1>
         <div id="draftStatus" class="turn-display"></div>
         <div style="display:flex; justify-content:space-around; font-size:11px; color:#8a8f98; margin:8px 0 4px 0;">
@@ -770,6 +781,7 @@
     </div>
 
     <div id="gameView" style="display: none;">
+        <button class="back-fab-btn" onclick="blConfirmBackFromMatch()" title="Back">←</button>
         <h1>BLOODLUST</h1>
         <div class="turn-display" id="turnIndicator"></div>
         
@@ -1750,6 +1762,17 @@ function sendChatPreset(msg) {
         mp.sendMsg({ type: 'chatMsg', text: msg });
     }
     closeChatModal();
+}
+
+// Confirms before leaving an in-progress match/draft, since doing so
+// forfeits it (and, in multiplayer, abandons the opponent mid-game).
+function blConfirmBackFromMatch() {
+    const matchOver = document.getElementById('resetButton').style.display !== 'none';
+    if (matchOver) { resetToSetup(); return; }
+    const msg = mp.isMultiplayer
+        ? "Leave this match? Your opponent will be left without you, and this counts as a loss."
+        : "Leave this match? Your progress will be lost.";
+    if (confirm(msg)) resetToSetup();
 }
 
 function resetToSetup(fromPopstate) {
