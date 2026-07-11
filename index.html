@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Eldritch</title>
+    <title>eldritch</title>
     <style>
         /* Linear.app Premium Dark Theme Matrix */
         body { 
@@ -770,6 +770,87 @@
         }
         .tutor-nav button:disabled { opacity: 0.35; cursor: default; }
         .tutor-progress { font-size: 10px; color: #5a5f68; letter-spacing: 0.04em; }
+
+        /* ====================================================================
+           ACTION RECAP OVERLAY — "Among Us"-style kill cam for eliminations,
+           imprisonments, heals, revives, poison, shields, and lockdowns.
+           Purely cosmetic: sits above everything, never intercepts clicks.
+        ==================================================================== */
+        .recap-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(3, 2, 8, 0);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.28s ease, background 0.28s ease;
+        }
+        .recap-overlay.recap-show {
+            opacity: 1;
+            background: rgba(3, 2, 8, 0.9);
+        }
+        .recap-flash {
+            position: absolute;
+            inset: 0;
+            background: var(--recap-color, #ff3333);
+            opacity: 0;
+        }
+        .recap-overlay.recap-show .recap-flash { animation: recapFlash 0.6s ease-out; }
+        @keyframes recapFlash {
+            0% { opacity: 0.5; }
+            100% { opacity: 0; }
+        }
+        .recap-content {
+            position: relative;
+            text-align: center;
+            transform: scale(0.3) translateY(40px);
+            opacity: 0;
+        }
+        .recap-overlay.recap-show .recap-content {
+            animation: recapPop 0.6s cubic-bezier(.17,.89,.32,1.49) forwards;
+        }
+        @keyframes recapPop {
+            0% { transform: scale(0.25) translateY(50px) rotate(-6deg); opacity: 0; }
+            55% { transform: scale(1.14) translateY(-8px) rotate(2deg); opacity: 1; }
+            100% { transform: scale(1) translateY(0) rotate(0deg); opacity: 1; }
+        }
+        .recap-icon {
+            font-size: 92px;
+            line-height: 1;
+            filter: drop-shadow(0 0 34px var(--recap-color, #ff3333));
+            animation: recapIconPulse 1.1s ease-in-out infinite;
+        }
+        @keyframes recapIconPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.09); }
+        }
+        .recap-label {
+            margin-top: 16px;
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--recap-color, #ff3333);
+            text-shadow: 0 0 22px var(--recap-color, #ff3333);
+        }
+        .recap-name {
+            margin-top: 8px;
+            font-size: 24px;
+            font-weight: 700;
+            color: #f7f8f8;
+            letter-spacing: 0.01em;
+        }
+        .recap-side {
+            margin-top: 8px;
+            font-size: 10px;
+            color: #8a8f98;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-weight: 600;
+        }
     </style>
 
 
@@ -965,6 +1046,16 @@
             <button class="chat-custom-send-btn" onclick="sendChatCustom()">Send</button>
         </div>
         <button class="chat-close-btn" onclick="closeChatModal()">Close</button>
+    </div>
+
+    <div id="recapOverlay" class="recap-overlay">
+        <div class="recap-flash"></div>
+        <div class="recap-content">
+            <div class="recap-icon" id="recapIcon">💀</div>
+            <div class="recap-label" id="recapLabel">ELIMINATED</div>
+            <div class="recap-name" id="recapName">Card</div>
+            <div class="recap-side" id="recapSide"></div>
+        </div>
     </div>
 
     <div id="matchSummaryModal" class="guide-modal msum-modal">
@@ -1551,6 +1642,75 @@ function handleMoveTimeout(side) {
 // damage still applies as normal — only the killing blow / imprisonment is
 // blocked. Own-card costs (paying Hex to use your own ability) are never
 // affected by this — the shield only protects against the opponent.
+// ============================================================================
+// ACTION RECAP ANIMATIONS ("Among Us"-style kill cam)
+// Every time a card is eliminated, imprisoned, healed, revived, poisoned,
+// shielded, or locked down, a short full-screen animation is queued up and
+// plays immediately. This is purely cosmetic and runs AFTER the real game
+// state has already changed, so it never blocks, delays, or alters any
+// game logic, multiplayer sync, or bot AI — if the animation code failed
+// entirely the match would still play out exactly the same.
+// Multiple events (e.g. a double-hit Singer move) queue up and play back
+// one at a time instead of overlapping.
+// ============================================================================
+const RECAP_STYLES = {
+    kill:     { icon: '💀', label: 'ELIMINATED',  color: '#ff3333' },
+    jail:     { icon: '⛓️', label: 'IMPRISONED',  color: '#ffaa00' },
+    freed:    { icon: '🔓', label: 'FREED',        color: '#4af7a7' },
+    heal:     { icon: '❤️', label: 'HEALED',       color: '#4af7a7' },
+    revive:   { icon: '✨', label: 'REVIVED',      color: '#ffd700' },
+    poison:   { icon: '☠️', label: 'POISONED',     color: '#a855f7' },
+    cured:    { icon: '🧪', label: 'CURED',         color: '#4af7a7' },
+    lockdown: { icon: '🔒', label: 'LOCKED DOWN',  color: '#a855f7' },
+    shield:   { icon: '🛡️', label: 'SHIELD UP',    color: '#4af7ff' },
+    blocked:  { icon: '🛡️', label: 'BLOCKED',      color: '#4af7ff' },
+    rewind:   { icon: '⏳', label: 'REWOUND',      color: '#795548' },
+};
+let recapQueue = [];
+let recapPlaying = false;
+
+function cardSideLabel(card) {
+    if (!card) return '';
+    if (gameState.p1 && gameState.p1.includes(card)) return 'YOUR SQUAD';
+    if (gameState.p2 && gameState.p2.includes(card)) return 'ENEMY SQUAD';
+    return '';
+}
+
+// kind: one of RECAP_STYLES' keys. card: the affected card (used for name +
+// side unless overridden). opts.name lets callers override the displayed
+// name (e.g. "3 Cards" for a mass-release).
+function queueRecap(kind, card, opts = {}) {
+    if (!RECAP_STYLES[kind]) return;
+    if (!card && !opts.name) return;
+    recapQueue.push({ kind, name: opts.name || card.name, side: opts.side || cardSideLabel(card) });
+    tryPlayRecapQueue();
+}
+
+function tryPlayRecapQueue() {
+    if (recapPlaying || recapQueue.length === 0) return;
+    const overlay = document.getElementById('recapOverlay');
+    if (!overlay) { recapQueue = []; return; }
+    recapPlaying = true;
+    const event = recapQueue.shift();
+    const style = RECAP_STYLES[event.kind];
+    overlay.style.setProperty('--recap-color', style.color);
+    document.getElementById('recapIcon').innerText = style.icon;
+    document.getElementById('recapLabel').innerText = style.label;
+    document.getElementById('recapName').innerText = event.name;
+    document.getElementById('recapSide').innerText = event.side;
+    overlay.classList.remove('recap-show');
+    void overlay.offsetWidth; // restart CSS animation even for identical back-to-back events
+    overlay.classList.add('recap-show');
+    blVibrate(event.kind === 'kill' ? [40, 40, 120] : 30);
+    setTimeout(() => {
+        overlay.classList.remove('recap-show');
+        setTimeout(() => {
+            recapPlaying = false;
+            tryPlayRecapQueue();
+        }, 280);
+    }, 1400);
+}
+
 function isCardShielded(card) {
     if (!card) return false;
     if (gameState.p1.some(c => c.id === card.id)) return gameState.p1KnightShields > 0;
@@ -1566,8 +1726,11 @@ function applyShieldedDamage(target, amount) {
     if (result <= 0 && target.hex > 0 && isCardShielded(target)) {
         target.hex = 1;
         writeLog(`🛡️ ${target.name}'s K-Shield absorbed a killing blow!`);
+        queueRecap('blocked', target);
     } else {
+        let wasAlive = target.hex > 0;
         target.hex = Math.max(0, result);
+        if (wasAlive && target.hex === 0) queueRecap('kill', target);
     }
 }
 
@@ -1579,8 +1742,11 @@ function applyShieldedExecution(target) {
     if (target.hex > 0 && isCardShielded(target)) {
         target.hex = 1;
         writeLog(`🛡️ ${target.name}'s K-Shield absorbed a lethal execution!`);
+        queueRecap('blocked', target);
     } else {
+        let wasAlive = target.hex > 0;
         target.hex = 0;
+        if (wasAlive) queueRecap('kill', target);
     }
 }
 
@@ -1589,8 +1755,10 @@ function applyShieldedImprison(target) {
     if (!target) return;
     if (isCardShielded(target)) {
         writeLog(`🛡️ ${target.name}'s K-Shield prevented imprisonment!`);
+        queueRecap('blocked', target);
     } else {
         target.imprisoned = true;
+        queueRecap('jail', target);
     }
 }
 
@@ -3505,6 +3673,7 @@ function executeKnightFirstMove(actorId) {
     actor.hasActivity = true;
     gameState.p1KnightShields = 2;
     writeLog(`🛡️ Your Knight activated a global protection shield.`);
+    queueRecap('shield', actor);
     statsBump(actor, 'p1', { tactical: 1, moves: 1 });
     gameState.p1LastMoveRole = null;
     finalizeActiveTurn();
@@ -3525,6 +3694,7 @@ function restoreFromRecord(record, affectedCard) {
         }
         if (record.wasPoisoned) affectedCard.poisoned = false;
     }
+    queueRecap('rewind', affectedCard);
 }
 
 function executeWatchmakerTimeTravel(actorId) {
@@ -3568,6 +3738,7 @@ function executeImamDefensiveBlock(actorId) {
             if (record.wasImprisoned && targetCard.imprisoned) {
                 targetCard.imprisoned = false;
                 writeLog(`🕌 Imam divine block! Reversal of time released ${targetCard.name} from prison.`);
+                queueRecap('freed', targetCard);
             } else if ((record.isDirectKill || record.isSorcererAction || record.damageDealt > 0) && !record.isNormalAttack) {
                 let wasDead = targetCard.hex <= 0;
                 targetCard.hex += record.damageDealt;
@@ -3577,6 +3748,7 @@ function executeImamDefensiveBlock(actorId) {
                 writeLog(`🕌 Imam divine block! Resurrected/Restored ${targetCard.name} by returning +${record.damageDealt} Hex.`);
                 statDeltas.healAmt = record.damageDealt;
                 if (wasDead) statDeltas.revives = 1;
+                queueRecap(wasDead ? 'revive' : 'heal', targetCard);
             }
         }
     }
@@ -3616,7 +3788,10 @@ function executeReporterRelease(cardId) {
     });
     actor.releasedImprisoned = true;
     writeLog(`📰 Reporter expose released ${freedCount} imprisoned cards.`);
-    if (freedCount > 0) statsBump(actor, 'p1', { tactical: freedCount });
+    if (freedCount > 0) {
+        statsBump(actor, 'p1', { tactical: freedCount });
+        queueRecap('freed', actor, { name: freedCount === 1 ? '1 Card' : `${freedCount} Cards`, side: 'YOUR SQUAD' });
+    }
     renderScene();
 }
 
@@ -4187,6 +4362,7 @@ function freeDoctorCleanse(doctorId, targetId) {
     patient.poisoned = false;
     if (doc.hex <= 0) doc.hex = 0;
     writeLog(`⚕️ Doctor performs clean action to remove poison from ${patient.name}. Cost: 1 Hex.`);
+    queueRecap('cured', patient);
     renderScene();
 }
 
@@ -4225,10 +4401,12 @@ function processSelectedTarget(targetId) {
         } else if (botAbilityName === 'Jinn') {
             enemy.blockedCounter = 4;
             writeLog(`🧘 Therapist rebounds lockdown onto bot ${enemy.name}!`);
+            queueRecap('lockdown', enemy);
         } else if (botAbilityName === 'Witch') {
             enemy.poisoned = true;
             applyShieldedDamage(enemy, 1);
             writeLog(`🧘 Therapist rebounds poison strike onto bot ${enemy.name}!`);
+            queueRecap('poison', enemy);
         } else {
             let dmg = record.damageDealt > 0 ? record.damageDealt : 1;
             applyShieldedDamage(enemy, dmg);
@@ -4246,6 +4424,7 @@ function processSelectedTarget(targetId) {
         let patient = gameState.p1.find(c => c.id === targetId);
         patient.hex = Math.min(patient.maxHex === Infinity ? 99 : patient.maxHex, patient.hex + 1);
         writeLog(`📰 Reporter distributed hex to ${patient.name} (+1 Hex).`);
+        queueRecap('heal', patient);
         
         gameState.targetingMode.type = 'reporter_heal_2';
         document.getElementById('targetBar').innerText = '📰 REPORTER: SELECT 2ND CARD TO HEAL';
@@ -4256,6 +4435,7 @@ function processSelectedTarget(targetId) {
         let patient = gameState.p1.find(c => c.id === targetId);
         patient.hex = Math.min(patient.maxHex === Infinity ? 99 : patient.maxHex, patient.hex + 1);
         writeLog(`📰 Reporter distributed hex to ${patient.name} (+1 Hex).`);
+        queueRecap('heal', patient);
         
         gameState.targetingMode.type = 'reporter_heal_3';
         document.getElementById('targetBar').innerText = '📰 REPORTER: SELECT 3RD CARD TO HEAL';
@@ -4266,6 +4446,7 @@ function processSelectedTarget(targetId) {
         let patient = gameState.p1.find(c => c.id === targetId);
         patient.hex = Math.min(patient.maxHex === Infinity ? 99 : patient.maxHex, patient.hex + 1);
         writeLog(`📰 Reporter distributed hex to ${patient.name} (+1 Hex).`);
+        queueRecap('heal', patient);
         
         gameState.targetingMode.type = 'reporter_heal_4';
         document.getElementById('targetBar').innerText = '📰 REPORTER: SELECT 4TH CARD TO HEAL';
@@ -4276,6 +4457,7 @@ function processSelectedTarget(targetId) {
         let patient = gameState.p1.find(c => c.id === targetId);
         patient.hex = Math.min(patient.maxHex === Infinity ? 99 : patient.maxHex, patient.hex + 1);
         writeLog(`📰 Reporter distributed hex to ${patient.name} (+1 Hex).`);
+        queueRecap('heal', patient);
         
         actorCard.hasActivity = true;
         actorCard.hex = 0;
@@ -4319,10 +4501,13 @@ function processSelectedTarget(targetId) {
                 firstEnemy.poisoned = true; 
                 applyShieldedDamage(firstEnemy, 2);
                 writeLog(`🤖 Mecha+Witch Fusion: Dealt 2x damage (2) and poisoned ${firstEnemy.name}.`);
+                queueRecap('poison', firstEnemy);
             } else {
                 firstEnemy.poisoned = true; applyShieldedDamage(firstEnemy, 1);
                 secondEnemy.poisoned = true; applyShieldedDamage(secondEnemy, 1);
                 writeLog(`🤖 Mecha+Witch Fusion: Dealt 1 damage and applied poison to both ${firstEnemy.name} and ${secondEnemy.name}.`);
+                queueRecap('poison', firstEnemy);
+                queueRecap('poison', secondEnemy);
             }
         } 
         else if (pName === 'Hood') {
@@ -4415,6 +4600,7 @@ function processSelectedTarget(targetId) {
             enemy.poisoned = true;
             applyShieldedDamage(enemy, 1);
             writeLog(`🔮 Control Sequence: Witch damaged and poisoned ${enemy.name}.`);
+            queueRecap('poison', enemy);
         } else if (originalType === 'Robber') {
             applyShieldedDamage(enemy, 1);
             actorCard.hex = Math.min(actorCard.maxHex === Infinity ? 99 : actorCard.maxHex, actorCard.hex + 1);
@@ -4433,6 +4619,7 @@ function processSelectedTarget(targetId) {
         } else if (originalType === 'Jinn') {
             enemy.blockedCounter = 4;
             writeLog(`🔮 Control Sequence: Jinn locked down ${enemy.name} for the next 3 opponent actions.`);
+            queueRecap('lockdown', enemy);
         } else if (originalType === 'Spy') {
             if (enemy.name !== 'Spy') applyShieldedDamage(enemy, 1);
             writeLog(`🔮 Control Sequence: Spy infiltrated and struck ${enemy.name}.`);
@@ -4500,6 +4687,7 @@ function processSelectedTarget(targetId) {
         ally.imprisoned = false;
         writeLog(`🧙‍♂️ Your Mage sacrificed ${hexToUse} Hex to resurrect dead bluster ${ally.name}.`);
         if (actorCard.hex <= 0) actorCard.hex = 0;
+        queueRecap('revive', ally);
         concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
@@ -4507,6 +4695,7 @@ function processSelectedTarget(targetId) {
     if (baseMove === 'mecha_hood_share_2') {
         ally.hex = Math.min(ally.maxHex, ally.hex + 2);
         writeLog(`🏹 Mecha+Hood Fusion transferred +2 Hex to revitalized ally ${ally.name}.`);
+        queueRecap('heal', ally);
         concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
@@ -4534,6 +4723,7 @@ function processSelectedTarget(targetId) {
     if (baseMove === 'jinn_block') {
         enemy.blockedCounter = 4; 
         writeLog(`🧞 Your Jinn locked down ${enemy.name}! It is suppressed and blocked for the next 3 opponent actions.`);
+        queueRecap('lockdown', enemy);
     }
     else if (baseMove === 'mystic_purge') {
         applyShieldedDamage(enemy, 1);
@@ -4567,6 +4757,7 @@ function processSelectedTarget(targetId) {
     else if (baseMove === 'doctor_heal') { 
         ally.hex = Math.min(ally.maxHex, ally.hex + 1); 
         writeLog(`❤️ Your Doctor heals squadmate ${ally.name}.`);
+        queueRecap('heal', ally);
     }
     else if (baseMove === 'cop_strike') {
         let dmg = enemy.hasActivity ? 2 : 1;
@@ -4605,10 +4796,12 @@ function processSelectedTarget(targetId) {
     else if (baseMove === 'hood_step2') { 
         ally.hex = Math.min(ally.maxHex, ally.hex + 1); 
         writeLog(`🏹 Your Hood steals hex and re-routes it to revitalize ${ally.name}.`);
+        queueRecap('heal', ally);
     }
     else if (baseMove === 'witch_poison') {
         enemy.poisoned = true; applyShieldedDamage(enemy, 1);
         writeLog(`🔮 Your Witch attacks and poisons ${enemy.name}.`);
+        queueRecap('poison', enemy);
     }
 
     if (actorCard.cooldown === 'consecutive') actorCard.lastUsedRound = gameState.roundCount;
@@ -4918,6 +5111,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let t = pickBotTarget(enemyPool, gameState.difficulty);
         t.blockedCounter = 4;
         writeLog(`🧞 ${verbPrefix} locks down your ${t.name}!`);
+        queueRecap('lockdown', t);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
@@ -4927,6 +5121,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         t.poisoned = true;
         applyShieldedDamage(t, 1);
         writeLog(`🔮 ${verbPrefix} poisons your ${t.name}!`);
+        queueRecap('poison', t);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
@@ -4970,7 +5165,10 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         let t = pickBotTarget(enemyPool, gameState.difficulty);
         applyShieldedDamage(t, 1);
         let healTarget = allyPool.find(c => c.hex < c.maxHex) || allyPool[0];
-        if (healTarget) healTarget.hex = Math.min(healTarget.maxHex === Infinity ? 99 : healTarget.maxHex, healTarget.hex + 1);
+        if (healTarget) {
+            healTarget.hex = Math.min(healTarget.maxHex === Infinity ? 99 : healTarget.maxHex, healTarget.hex + 1);
+            queueRecap('heal', healTarget);
+        }
         writeLog(`🏹 ${verbPrefix} strikes your ${t.name}${healTarget ? ' and channels hex to ' + healTarget.name : ''}!`);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
@@ -4994,6 +5192,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         if (!healTarget) return false;
         healTarget.hex = Math.min(healTarget.maxHex === Infinity ? 99 : healTarget.maxHex, healTarget.hex + 1);
         writeLog(`❤️ ${verbPrefix} heals ${healTarget.name}!`);
+        queueRecap('heal', healTarget);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
@@ -5136,6 +5335,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     targetPlayer.blockedCounter = 4;
                     actionType = 'block';
                     writeLog(`🧞 Bot Jinn locked down ${targetPlayer.name}! It is suppressed and blocked for 3 moves.`);
+                    queueRecap('lockdown', targetPlayer);
                 } else if (aiActor.name === 'Therapist') {
                     if (gameState.playerLastAttackRecord) {
                         let record = gameState.playerLastAttackRecord;
@@ -5156,10 +5356,12 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                             } else if (abilityName === 'Jinn') {
                                 reboundTarget.blockedCounter = 4;
                                 writeLog(`🧘 Bot Therapist rebounds lockdown onto your ${reboundTarget.name}!`);
+                                queueRecap('lockdown', reboundTarget);
                             } else if (abilityName === 'Witch') {
                                 reboundTarget.poisoned = true;
                                 applyShieldedDamage(reboundTarget, 1);
                                 writeLog(`🧘 Bot Therapist rebounds poison strike onto your ${reboundTarget.name}!`);
+                                queueRecap('poison', reboundTarget);
                             } else {
                                 let dmg = record.damageDealt > 0 ? record.damageDealt : 1;
                                 applyShieldedDamage(reboundTarget, dmg);
@@ -5191,6 +5393,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         let patient = healTargets[Math.floor(Math.random() * healTargets.length)];
                         patient.hex = Math.min(patient.maxHex, patient.hex + 1);
                         writeLog(`❤️ Bot Doctor heals squadmate ${patient.name}.`);
+                        queueRecap('heal', patient);
                     } else {
                         writeLog(`❤️ Bot Doctor found no injured squadmates.`);
                     }
@@ -5246,6 +5449,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         let recipient = hoodAllies[Math.floor(Math.random() * hoodAllies.length)];
                         recipient.hex = Math.min(recipient.maxHex, recipient.hex + 1);
                         writeLog(`🏹 Bot Hood steals hex and re-routes it to revitalize ${recipient.name}.`);
+                        queueRecap('heal', recipient);
                     } else {
                         writeLog(`🏹 Bot Hood steals hex but has no active allies.`);
                     }
@@ -5257,6 +5461,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         targetPlayer.poisoned = true;
                         applyShieldedDamage(targetPlayer, 1);
                         writeLog(`🔮 Bot Witch strikes and poisons your ${targetPlayer.name}.`);
+                        queueRecap('poison', targetPlayer);
                     }
                 } else if (aiActor.name === 'Lawyer') {
                     let validTargets = activePlayers.filter(c => (c.tag === 'Criminal' || c.tag === 'Law & Order') && c.hasActivity);
@@ -5296,11 +5501,14 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                                 targetCard.imprisoned = false;
                                 writeLog(`🕌 Bot Imam divine block! Released ${targetCard.name} from imprisonment.`);
                                 executedAction = true;
+                                queueRecap('freed', targetCard);
                             } else if ((record.isDirectKill || record.isSorcererAction || record.damageDealt > 0) && !record.isNormalAttack) {
+                                let wasDead = targetCard.hex <= 0;
                                 targetCard.hex += record.damageDealt;
                                 if (targetCard.hex > targetCard.maxHex && targetCard.maxHex !== Infinity) targetCard.hex = targetCard.maxHex;
                                 writeLog(`🕌 Bot Imam divine block! Restored ${targetCard.name} by +${record.damageDealt} Hex.`);
                                 executedAction = true;
+                                queueRecap(wasDead ? 'revive' : 'heal', targetCard);
                             }
                         }
                     }
@@ -5308,6 +5516,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     if (aiActor.hex === 1) {
                         gameState.p2KnightShields = 2;
                         writeLog(`🛡️ Bot Knight activated a global protection shield.`);
+                        queueRecap('shield', aiActor);
                     } else {
                         if (targetPlayer.name === 'Spy') applyShieldedExecution(targetPlayer);
                         else if (targetPlayer.tag !== 'Entity') applyShieldedDamage(targetPlayer, 1);
@@ -5321,6 +5530,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                             aiActor.hex -= cost;
                             deadBots[0].hex = cost;
                             writeLog(`🤖 Bot Mage resurrected ${deadBots[0].name} with ${cost} Hex.`);
+                            queueRecap('revive', deadBots[0]);
                         }
                     } else if (targetPlayer.tag === 'Entity') {
                         applyShieldedDamage(targetPlayer, 1);
@@ -5343,14 +5553,14 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         aiActor.mechaCooldown = 4;
 
                         if (pName === 'Witch') {
-                            if (isSameTarget) { first.poisoned = true; applyShieldedDamage(first, 2); }
-                            else { first.poisoned = true; applyShieldedDamage(first, 1); second.poisoned = true; applyShieldedDamage(second, 1); }
+                            if (isSameTarget) { first.poisoned = true; applyShieldedDamage(first, 2); queueRecap('poison', first); }
+                            else { first.poisoned = true; applyShieldedDamage(first, 1); second.poisoned = true; applyShieldedDamage(second, 1); queueRecap('poison', first); queueRecap('poison', second); }
                             writeLog(`🤖 Bot Mecha+Witch Fusion: poisoned and struck your ${first.name}${isSameTarget ? '' : ' and ' + second.name}!`);
                         } else if (pName === 'Hood') {
                             if (isSameTarget) applyShieldedDamage(first, 2);
                             else { applyShieldedDamage(first, 1); applyShieldedDamage(second, 1); }
                             let healTarget = gameState.p2.filter(c => c.hex > 0 && !c.imprisoned).sort((a, b) => a.hex - b.hex)[0];
-                            if (healTarget) healTarget.hex = Math.min(healTarget.maxHex === Infinity ? 99 : healTarget.maxHex, healTarget.hex + 2);
+                            if (healTarget) { healTarget.hex = Math.min(healTarget.maxHex === Infinity ? 99 : healTarget.maxHex, healTarget.hex + 2); queueRecap('heal', healTarget); }
                             writeLog(`🤖 Bot Mecha+Hood Fusion: struck your ${first.name}${isSameTarget ? '' : ' and ' + second.name} and channeled +2 Hex to ${healTarget ? healTarget.name : 'a squadmate'}!`);
                         } else if (pName === 'Killer') {
                             applyShieldedExecution(first);
@@ -5410,7 +5620,10 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                             freedCount++;
                         }
                     });
-                    if (freedCount > 0) writeLog(`📰 Bot Reporter expose released ${freedCount} imprisoned cards.`);
+                    if (freedCount > 0) {
+                        writeLog(`📰 Bot Reporter expose released ${freedCount} imprisoned cards.`);
+                        queueRecap('freed', aiActor, { name: freedCount === 1 ? '1 Card' : `${freedCount} Cards`, side: 'ENEMY SQUAD' });
+                    }
                     
                     let injuredBots = gameState.p2.filter(c => c.hex > 0 && c.hex < c.maxHex);
                     for (let i = 0; i < 4; i++) {
@@ -5418,6 +5631,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                             let b = injuredBots[Math.floor(Math.random() * injuredBots.length)];
                             b.hex = Math.min(b.maxHex === Infinity ? 99 : b.maxHex, b.hex + 1);
                             writeLog(`📰 Bot Reporter distributed hex to ${b.name} (+1 Hex).`);
+                            queueRecap('heal', b);
                             injuredBots = gameState.p2.filter(c => c.hex > 0 && c.hex < c.maxHex);
                         }
                     }
