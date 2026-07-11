@@ -1,20 +1,20 @@
 {
-  "name": "BloodLust",
-  "short_name": "BloodLust",
+  "name": "eldritch",
+  "short_name": "eldritch",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#080710",
   "theme_color": "#080710",
   "icons": [
   {
-    "src": "./icon.png",
+    "src": "./icon.ico",
     "sizes": "192x192",
-    "type": "image/png"
+    "type": "icon/ico"
   },
   {
-    "src": "./icon.png",
-    "sizes": "512x512",
-    "type": "image/png"
+    "src": "./icon.ico",
+    "sizes": "256x256",
+    "type": "icon/ico"
   }
 ]
 }
