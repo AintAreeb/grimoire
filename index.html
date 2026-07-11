@@ -433,7 +433,7 @@
             width: 22px; height: 22px; border-radius: 50%; background: #f7f8f8;
             transition: left 0.2s;
         }
-        .settings-toggle-btn.settings-toggle-on { background: #4af7a7; border-color: #4af7a7; }
+        .settings-toggle-btn.settings-toggle-on { background: #ff3333; border-color: #ff3333; }
         .settings-toggle-btn.settings-toggle-on::after { left: 24px; background: #08130d; }
 
         /* Glassmorphic Overlay Modals */
@@ -591,6 +591,7 @@
             font-weight: 700; margin: 12px 0 6px 0;
         }
         .guide-section-label:first-child { margin-top: 0; }
+        #settingsModal .guide-section-label { color: #ff5555; }
         .guide-card-entry {
             background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
             border-radius: 8px; padding: 8px 10px; margin-bottom: 6px;
@@ -730,8 +731,8 @@
            Vibration) — each player builds/plays their own list locally. */
         .music-hint { font-size: 9px; color: #5a5f68; margin: -4px 0 10px 0; line-height: 1.4; }
         .music-tip {
-            font-size: 10px; color: #4af7a7; background: rgba(74, 247, 167, 0.07);
-            border: 1px solid rgba(74, 247, 167, 0.15); border-radius: 8px;
+            font-size: 10px; color: #ff5555; background: rgba(255, 51, 51, 0.07);
+            border: 1px solid rgba(255, 51, 51, 0.15); border-radius: 8px;
             padding: 7px 9px; margin: 0 0 10px 0; line-height: 1.4;
         }
         .music-apikey-row { display: flex; gap: 6px; margin-bottom: 6px; }
@@ -741,7 +742,7 @@
             border-radius: 8px; padding: 9px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
         }
         .music-getkey-link {
-            display: block; font-size: 10px; color: #4af7a7; text-decoration: none;
+            display: block; font-size: 10px; color: #ff5555; text-decoration: none;
             margin: 4px 0 8px 0; font-weight: 600;
         }
         .music-getkey-link:active { opacity: 0.7; }
@@ -762,14 +763,18 @@
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .music-item-channel { font-size: 9px; color: #8a8f98; display: block; }
-        .music-add-btn, .music-remove-btn {
-            flex-shrink: 0; background: #1a1922; color: #4af7a7; border: 1px solid rgba(255,255,255,0.1);
+        .music-add-btn {
+            flex-shrink: 0; background: #1a1922; color: #ff3333; border: 1px solid rgba(255,255,255,0.1);
             border-radius: 6px; width: 24px; height: 24px; font-size: 13px; font-weight: 700; cursor: pointer;
             line-height: 1;
         }
-        .music-remove-btn { color: #ff5555; }
-        .music-playlist-item input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: #4af7a7; }
-        .music-playlist-item.music-item-playing .music-item-title { color: #4af7a7; }
+        .music-remove-btn {
+            flex-shrink: 0; background: #1a1922; color: #ff5555; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; width: 24px; height: 24px; font-size: 13px; font-weight: 700; cursor: pointer;
+            line-height: 1;
+        }
+        .music-playlist-item input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: #ff3333; }
+        .music-playlist-item.music-item-playing .music-item-title { color: #ff5555; }
         .music-empty-note { font-size: 11px; color: #5a5f68; margin: 4px 0 10px 0; text-align: center; }
         .music-player-controls { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
         .music-play-btn, .music-skip-btn {
@@ -778,7 +783,7 @@
             display: flex; align-items: center; justify-content: center;
         }
         .music-volume-row { display: flex; align-items: center; gap: 6px; flex: 1; }
-        .music-volume-row input[type="range"] { flex: 1; accent-color: #4af7a7; }
+        .music-volume-row input[type="range"] { flex: 1; accent-color: #ff3333; }
         .music-now-playing {
             font-size: 10px; color: #8a8f98; text-align: center; margin-top: 8px;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
