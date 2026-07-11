@@ -2557,6 +2557,7 @@ let mp = {
     room: null,
     roomName: null,     // the actual trystero room name, saved so a refresh can rejoin it
     sendMsg: null,
+    reliable: null,     // the ACK/retry wrapper around mp.room, so it can be disposed on teardown
     peerId: null,
     mySide: null,       // 1 or 2, assigned once an opponent connects
     squadMode: 'random', // 'random' | 'draft'
@@ -2779,6 +2780,7 @@ function mpAttemptReconnectOnLoad() {
 
     mp.room = window.__trysteroJoinRoom(MP_CONFIG, mp.roomName);
     const reliable = mpWireReliableRoom(mp.room);
+    mp.reliable = reliable;
     mp.sendMsg = reliable.send;
     reliable.msgAction.onMessage = (data, peerId) => mpHandleMessage(data, peerId);
 
@@ -2811,6 +2813,9 @@ function mpShowJoinInput() {
 }
 
 function mpTeardownConnection() {
+    if (mp.reliable && mp.reliable.dispose) {
+        try { mp.reliable.dispose(); } catch (e) {}
+    }
     if (mp.room) {
         try { mp.room.leave(); } catch (e) {}
     }
@@ -2820,7 +2825,7 @@ function mpTeardownConnection() {
         blCallAccountRpc('cancel_match_invite', { p_invite_id: blLastSentInviteId });
         blLastSentInviteId = null;
     }
-    mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby' };
+    mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby' };
     const codeEl = document.getElementById('mpRoomCodeDisplay');
     if (codeEl) codeEl.innerText = '';
     mpLog('');
@@ -2845,38 +2850,90 @@ function mpReady() {
 }
 
 // A brand-new trystero room's WebRTC data channel isn't open the instant
-// joinRoom() returns — the ICE/SDP handshake still has to finish. If a
-// message is sent before that completes, trystero has no peer to deliver it
-// to and the message is silently dropped forever (not queued, not retried).
-// This matters most right after "random opponent" matchmaking hands two
-// peers off from the shared public lobby room into their own brand-new
-// private room and gameplay starts immediately: the very first message sent
-// in that private room (the first draft pick, or the initial random-squad
-// payload) can vanish before the channel is actually up, leaving one side
-// stuck forever thinking it's still waiting on the other ("opponent is
-// choosing" never updates). This wrapper queues any send attempted before a
-// peer has actually joined the room and flushes the queue the instant they
-// do, so nothing sent early gets lost. Targeted sends (a specific peerId
-// given) are always let through immediately since those only ever happen in
-// direct reply to a message just received on a channel that's already open.
+// joinRoom() returns — the ICE/SDP handshake still has to finish. Beyond
+// that initial race, real-world WebRTC data channels can also just drop an
+// individual message outright with zero feedback to either side. Before
+// this wrapper, a dropped 'draftPick', 'turnState', or 'squadsReady' message
+// meant the recipient was stuck forever ("opponent is picking..." /
+// "opponent's move" never updates) with no way to recover — this was the
+// root cause behind reports of one side entering a match while the other
+// never did, and of draft turns silently freezing.
+// This wrapper fixes both problems: every outgoing message gets a sequence
+// number and is retried on a timer until the recipient sends back a
+// lightweight ack for that sequence number; the recipient dedupes by
+// sequence number so a retried message is never delivered to the app layer
+// twice. Sends attempted before any peer has joined are also queued and
+// flushed the instant one does, same as before.
 function mpWireReliableRoom(room) {
-    const msgAction = room.makeAction('msg');
-    const rawSend = msgAction.send;
-    const state = { connected: Object.keys(room.getPeers()).length > 0, outbox: [] };
+    const rawMsgAction = room.makeAction('msg');
+    const ackAction = room.makeAction('msgAck');
+    const rawSend = rawMsgAction.send;
+    const rawAckSend = ackAction.send;
+
+    const state = {
+        connected: Object.keys(room.getPeers()).length > 0,
+        outbox: [],   // [envelope, peerId] queued before the first peer connects
+        seqCounter: 0,
+        pending: {},  // seq -> { envelope, peerId, attempts }
+        seenSeqs: {}  // peerId -> Set of seqs already delivered to the app layer
+    };
+    let appOnMessage = null;
+
+    // Callers do `reliable.msgAction.onMessage = fn` — this proxy keeps that
+    // exact API working while letting us intercept every real message for
+    // the ack/dedupe bookkeeping below.
+    const msgActionProxy = {
+        get onMessage() { return appOnMessage; },
+        set onMessage(fn) { appOnMessage = fn; }
+    };
+
+    const rawSendEnvelope = (envelope, peerId) => {
+        if (state.connected || peerId) rawSend(envelope, peerId);
+        else state.outbox.push([envelope, peerId]);
+    };
+
+    const send = (data, peerId) => {
+        const seq = ++state.seqCounter;
+        const envelope = { __seq: seq, __body: data };
+        state.pending[seq] = { envelope, peerId, attempts: 0 };
+        rawSendEnvelope(envelope, peerId);
+    };
+
+    const RETRY_MS = 1200;
+    const MAX_ATTEMPTS = 20; // ~24s of retrying before giving up on a send
+    const retryTimer = setInterval(() => {
+        Object.keys(state.pending).forEach(seqKey => {
+            const p = state.pending[seqKey];
+            if (!p) return;
+            p.attempts++;
+            if (p.attempts > MAX_ATTEMPTS) { delete state.pending[seqKey]; return; }
+            if (state.connected || p.peerId) rawSend(p.envelope, p.peerId);
+        });
+    }, RETRY_MS);
+
+    ackAction.onMessage = (data) => {
+        if (data && data.__seq != null) delete state.pending[data.__seq];
+    };
+
+    rawMsgAction.onMessage = (envelope, peerId) => {
+        if (!envelope || envelope.__seq == null) return; // ignore malformed/legacy
+        // Always ack — even a duplicate delivery — in case our first ack
+        // never made it back to the sender (acks themselves aren't retried).
+        rawAckSend({ __seq: envelope.__seq }, peerId);
+        if (!state.seenSeqs[peerId]) state.seenSeqs[peerId] = new Set();
+        if (state.seenSeqs[peerId].has(envelope.__seq)) return; // already processed
+        state.seenSeqs[peerId].add(envelope.__seq);
+        if (appOnMessage) appOnMessage(envelope.__body, peerId);
+    };
+
     const flush = () => {
         state.connected = true;
         const queued = state.outbox;
         state.outbox = [];
-        queued.forEach(([data, peerId]) => rawSend(data, peerId));
+        queued.forEach(([envelope, peerId]) => rawSend(envelope, peerId));
     };
-    const send = (data, peerId) => {
-        if (state.connected || peerId) {
-            rawSend(data, peerId);
-        } else {
-            state.outbox.push([data, peerId]);
-        }
-    };
-    return { msgAction, send, onPeerConnected: flush };
+
+    return { msgAction: msgActionProxy, send, onPeerConnected: flush, dispose: () => clearInterval(retryTimer) };
 }
 
 
@@ -2902,6 +2959,7 @@ function mpConnectDirect(code) {
     mpLog('Waiting for opponent to connect...');
     mp.room = window.__trysteroJoinRoom(MP_CONFIG, mp.roomName);
     const reliable = mpWireReliableRoom(mp.room);
+    mp.reliable = reliable;
     mp.sendMsg = reliable.send;
     reliable.msgAction.onMessage = (data, peerId) => mpHandleMessage(data, peerId);
     mp.room.onPeerJoin = peerId => {
@@ -2973,6 +3031,7 @@ function mpFinalizeMatch(peerId) {
     mp.roomName = privateName;
     mp.room = window.__trysteroJoinRoom(MP_CONFIG, privateName);
     const reliable = mpWireReliableRoom(mp.room);
+    mp.reliable = reliable;
     mp.sendMsg = reliable.send;
     reliable.msgAction.onMessage = (data, pid) => mpHandleMessage(data, pid);
     // Both sides call mpBeginSquadPhase() below right away (draft/squad setup
@@ -3017,6 +3076,14 @@ function mpRunRandomizedSquadFlow() {
         mpLog('Waiting for opponent to roll squads...');
         document.getElementById('setupView').style.display = 'block';
         document.getElementById('mpPanel').style.display = 'block';
+        // Belt-and-suspenders: mpWireReliableRoom now retries a dropped
+        // 'squadsReady' message on its own, but just in case, also check in
+        // after a few seconds and ask directly — this recovers even from
+        // conditions the transport-level retry can't (e.g. this device was
+        // asleep/backgrounded through the whole retry window).
+        setTimeout(() => {
+            if (mp.phase === 'lobby' && mp.sendMsg) mp.sendMsg({ type: 'resyncRequest' }, mp.peerId);
+        }, 5000);
     }
 }
 
@@ -3161,6 +3228,13 @@ function mpApplyDraftPick(cardName, side) {
 }
 
 function mpHandleMessage(data, peerId) {
+    // Resync responses reflect whatever phase the RESPONDING peer happens to
+    // be in, which — if a prior message (e.g. a dropped final draftPick) left
+    // the two sides briefly out of sync — can be genuinely behind where this
+    // device already is. Blindly applying an older-phase response used to
+    // yank an already-in-battle device back into the draft screen. Rank
+    // guards below make sure a resync can only ever move you forward.
+    const mpPhaseRank = (phase) => phase === 'battle' ? 2 : (phase === 'draft' ? 1 : 0);
     if (data.type === 'squadsReady') {
         mpStartBattleFromPayload(mpRestoreFromWire(data.payload));
     } else if (data.type === 'draftPick') {
@@ -3200,6 +3274,14 @@ function mpHandleMessage(data, peerId) {
     } else if (data.type === 'resyncRequest') {
         mpHandleResyncRequest(peerId);
     } else if (data.type === 'resyncResponseDraft') {
+        if (mpPhaseRank(mp.phase) > mpPhaseRank('draft')) {
+            // We're already further along (e.g. in battle) than this stale
+            // response — the peer just hasn't caught up yet. Ask again
+            // shortly instead of regressing our own screen backward.
+            mpHideReconnectBanner();
+            setTimeout(() => { if (mp.sendMsg) mp.sendMsg({ type: 'resyncRequest' }, peerId); }, 1500);
+            return;
+        }
         mpHideReconnectBanner();
         mp.isMultiplayer = true;
         mp.phase = 'draft';
