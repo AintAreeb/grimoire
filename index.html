@@ -702,9 +702,15 @@
                 </div>
                 <div id="accountStatus" class="account-status"></div>
             </div>
-            <div id="accountLoggedIn" style="display:none;">
+            <div id="accountLoggedIn" style="display:none; position:relative;">
                 <span id="accountWelcome"></span>
-                <button class="account-btn account-btn-alt" onclick="blLogout()">Log Out</button>
+                <div style="display:flex; gap:6px;">
+                    <button class="account-btn account-btn-alt" style="position:relative;" onclick="openFriendsModal()">
+                        👥 Friends
+                        <span id="friendsReqBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3333; color:#fff; border-radius:50%; width:16px; height:16px; font-size:9px; line-height:16px; text-align:center; font-weight:700;"></span>
+                    </button>
+                    <button class="account-btn account-btn-alt" onclick="blLogout()">Log Out</button>
+                </div>
             </div>
         </div>
 
@@ -824,6 +830,23 @@
             </div>
         </div>
         <button class="guide-close-btn" onclick="closeGuideModal()">Close</button>
+    </div>
+
+    <div id="friendsModal" class="guide-modal" style="max-width:300px;">
+        <h3>👥 Friends</h3>
+        <div class="guide-tabs">
+            <button class="guide-tab-btn guide-tab-active" id="friendsTabListBtn" onclick="switchFriendsTab('list')">Friends</button>
+            <button class="guide-tab-btn" id="friendsTabReqBtn" onclick="switchFriendsTab('requests')">Requests</button>
+            <button class="guide-tab-btn" id="friendsTabAddBtn" onclick="switchFriendsTab('add')">Add</button>
+        </div>
+        <div class="guide-body" id="friendsListView"></div>
+        <div class="guide-body" id="friendsReqView" style="display:none;"></div>
+        <div class="guide-body" id="friendsAddView" style="display:none;">
+            <input type="text" id="friendAddInput" class="account-input" placeholder="Username" maxlength="20" autocomplete="off">
+            <button class="account-btn" style="width:100%;" onclick="blSendFriendRequest()">Send Request</button>
+            <div id="friendAddStatus" class="account-status"></div>
+        </div>
+        <button class="guide-close-btn" onclick="closeFriendsModal()">Close</button>
     </div>
 
     <div id="bartenderChoiceModal" class="bartender-modal">
@@ -1304,7 +1327,7 @@ function bl_bootIntoGameScreen() {
     bl_pushState({ screen: 'game', modal: null });
 }
 function bl_hideModalUI(name) {
-    const ids = { guide: 'guideModal', chat: 'chatModal' };
+    const ids = { guide: 'guideModal', chat: 'chatModal', friends: 'friendsModal' };
     const el = document.getElementById(ids[name]);
     if (el) el.style.display = 'none';
 }
@@ -1367,6 +1390,7 @@ function blRenderAccountUI() {
         loggedOut.style.display = 'none';
         loggedIn.style.display = 'flex';
         document.getElementById('accountWelcome').innerText = `👤 Logged in as ${blAccount.username}`;
+        blRefreshFriends();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
@@ -1418,6 +1442,136 @@ function blLogout() {
     document.getElementById('acctPassword').value = '';
     blSetAccountStatus('');
     blRenderAccountUI();
+}
+
+// ============================================================================
+// FRIENDS (backed by the same Supabase project — see
+// bloodlust_friends_setup.sql for the one-time database setup)
+// ============================================================================
+let blFriendsData = { friends: [], incoming: [], outgoing: [] };
+let blFriendsTab = 'list';
+
+function openFriendsModal() {
+    if (!blAccount) return;
+    bl_pushState({ modal: 'friends' });
+    document.getElementById('friendsModal').style.display = 'flex';
+    blRefreshFriends();
+}
+function closeFriendsModal() {
+    document.getElementById('friendsModal').style.display = 'none';
+    if (bl_hist.modal === 'friends') history.back();
+}
+
+function switchFriendsTab(tab) {
+    blFriendsTab = tab;
+    document.getElementById('friendsTabListBtn').classList.toggle('guide-tab-active', tab === 'list');
+    document.getElementById('friendsTabReqBtn').classList.toggle('guide-tab-active', tab === 'requests');
+    document.getElementById('friendsTabAddBtn').classList.toggle('guide-tab-active', tab === 'add');
+    document.getElementById('friendsListView').style.display = tab === 'list' ? 'block' : 'none';
+    document.getElementById('friendsReqView').style.display = tab === 'requests' ? 'block' : 'none';
+    document.getElementById('friendsAddView').style.display = tab === 'add' ? 'block' : 'none';
+}
+
+async function blRefreshFriends() {
+    if (!blAccount) return;
+    document.getElementById('friendsListView').innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">Loading…</div>';
+    const result = await blCallAccountRpc('get_friends_data', { p_username: blAccount.username });
+    if (!result.ok) {
+        document.getElementById('friendsListView').innerHTML = `<div class="guide-card-desc" style="text-align:center; padding:14px 0; color:#ff8888;">${result.error || 'Could not load friends.'}</div>`;
+        return;
+    }
+    blFriendsData = result;
+    blRenderFriendsList();
+    blRenderFriendsRequests();
+    blUpdateFriendsBadge();
+}
+
+function blRenderFriendsList() {
+    const el = document.getElementById('friendsListView');
+    const friends = blFriendsData.friends || [];
+    if (friends.length === 0) {
+        el.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">No friends yet — add one from the "Add" tab.</div>';
+        return;
+    }
+    el.innerHTML = friends.map(name => `
+        <div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between;">
+            <span class="guide-card-name">${blEscapeHtml(name)}</span>
+            <button class="account-btn account-btn-alt" style="flex:none; padding:6px 10px; font-size:10px;" onclick="blRemoveFriend('${blEscapeJs(name)}')">Remove</button>
+        </div>
+    `).join('');
+}
+
+function blRenderFriendsRequests() {
+    const el = document.getElementById('friendsReqView');
+    const incoming = blFriendsData.incoming || [];
+    const outgoing = blFriendsData.outgoing || [];
+    let html = '';
+    if (incoming.length > 0) {
+        html += '<div class="guide-section-label">Incoming</div>';
+        html += incoming.map(name => `
+            <div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between;">
+                <span class="guide-card-name">${blEscapeHtml(name)}</span>
+                <div style="display:flex; gap:4px;">
+                    <button class="account-btn" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRespondFriend('${blEscapeJs(name)}', true)">Accept</button>
+                    <button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRespondFriend('${blEscapeJs(name)}', false)">Decline</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    if (outgoing.length > 0) {
+        html += '<div class="guide-section-label">Sent</div>';
+        html += outgoing.map(name => `
+            <div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between;">
+                <span class="guide-card-name">${blEscapeHtml(name)}</span>
+                <span class="guide-card-meta">Pending</span>
+            </div>
+        `).join('');
+    }
+    if (!html) html = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">No pending requests.</div>';
+    el.innerHTML = html;
+}
+
+function blUpdateFriendsBadge() {
+    const badge = document.getElementById('friendsReqBadge');
+    const count = (blFriendsData.incoming || []).length;
+    if (count > 0) {
+        badge.style.display = 'block';
+        badge.innerText = count > 9 ? '9+' : String(count);
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+async function blSendFriendRequest() {
+    const target = document.getElementById('friendAddInput').value.trim();
+    const statusEl = document.getElementById('friendAddStatus');
+    if (!target) { statusEl.innerText = 'Enter a username first.'; return; }
+    statusEl.innerText = 'Sending...';
+    const result = await blCallAccountRpc('send_friend_request', { p_from_username: blAccount.username, p_to_username: target });
+    if (result.ok) {
+        statusEl.innerText = 'Request sent!';
+        document.getElementById('friendAddInput').value = '';
+        blRefreshFriends();
+    } else {
+        statusEl.innerText = result.error || 'Could not send request.';
+    }
+}
+
+async function blRespondFriend(fromUsername, accept) {
+    const result = await blCallAccountRpc('respond_friend_request', { p_username: blAccount.username, p_from_username: fromUsername, p_accept: accept });
+    if (result.ok) blRefreshFriends();
+}
+
+async function blRemoveFriend(otherUsername) {
+    const result = await blCallAccountRpc('remove_friend', { p_username: blAccount.username, p_other_username: otherUsername });
+    if (result.ok) blRefreshFriends();
+}
+
+function blEscapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function blEscapeJs(s) {
+    return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 document.addEventListener('DOMContentLoaded', () => {
