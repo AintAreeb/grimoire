@@ -851,6 +851,81 @@
             letter-spacing: 0.12em;
             font-weight: 600;
         }
+
+        /* ============================================================
+           MATCH-END FX
+           Confetti burst on a clean win, red screen-glitch/shake on a
+           loss (or mutual wipeout). Purely cosmetic, plays once, and
+           every node it spawns removes itself after its animation ends.
+           ============================================================ */
+        @keyframes eldConfettiFall {
+            0%   { transform: translate3d(0, -10vh, 0) rotate(0deg); opacity: 1; }
+            85%  { opacity: 1; }
+            100% { transform: translate3d(var(--eld-drift), 110vh, 0) rotate(var(--eld-rot)); opacity: 0; }
+        }
+        .eld-confetti-piece {
+            position: fixed;
+            top: 0;
+            pointer-events: none;
+            z-index: 99999;
+            opacity: 0;
+            border-radius: 2px;
+            animation-name: eldConfettiFall;
+            animation-timing-function: cubic-bezier(.25,.46,.45,.94);
+            animation-fill-mode: forwards;
+        }
+        @keyframes eldVictoryFlash {
+            0%   { opacity: 0; }
+            15%  { opacity: 0.4; }
+            100% { opacity: 0; }
+        }
+        .eld-victory-flash {
+            position: fixed; inset: 0; pointer-events: none; z-index: 99998;
+            background: radial-gradient(circle at 50% 30%, rgba(255,204,0,0.5), rgba(74,247,167,0.16) 55%, transparent 78%);
+            animation: eldVictoryFlash 1.9s ease-out forwards;
+        }
+
+        @keyframes eldScreenShake {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-6px, 2px); }
+            20% { transform: translate(5px, -3px); }
+            30% { transform: translate(-5px, 3px); }
+            40% { transform: translate(6px, 1px); }
+            50% { transform: translate(-3px, -2px); }
+            60% { transform: translate(4px, 2px); }
+            70% { transform: translate(-5px, -1px); }
+            80% { transform: translate(3px, 3px); }
+            90% { transform: translate(-2px, -2px); }
+        }
+        body.eld-shake { animation: eldScreenShake 0.6s cubic-bezier(.36,.07,.19,.97) both; }
+
+        @keyframes eldDefeatFlash {
+            0%   { opacity: 0; }
+            10%  { opacity: 0.85; }
+            25%  { opacity: 0.15; }
+            35%  { opacity: 0.7; }
+            50%  { opacity: 0.1; }
+            100% { opacity: 0; }
+        }
+        .eld-defeat-overlay {
+            position: fixed; inset: 0; pointer-events: none; z-index: 99998;
+            background: rgba(255, 51, 51, 0.28);
+            animation: eldDefeatFlash 1.05s steps(1, end) forwards;
+        }
+        @keyframes eldGlitchBar {
+            0%   { transform: translateX(-40px); opacity: 0; }
+            10%  { opacity: 1; }
+            50%  { transform: translateX(30px); opacity: 1; }
+            90%  { opacity: 1; }
+            100% { transform: translateX(-15px); opacity: 0; }
+        }
+        .eld-glitch-bar {
+            position: fixed; left: 0; right: 0; height: 3px;
+            pointer-events: none; z-index: 99999;
+            animation-name: eldGlitchBar;
+            animation-timing-function: steps(6, jump-none);
+            animation-fill-mode: forwards;
+        }
     </style>
 
 
@@ -1232,6 +1307,13 @@ let gameState = {
     p2: [],
     isGameOver: false,
     difficulty: 'tactical',
+    // Once the per-move clock drops to 8s or less (aliveCharacterCount() <= 4,
+    // i.e. the endgame — see startMoveTimer), this flips true and stays true
+    // for the rest of the match: every recap popup (kill/heal/poison/etc.)
+    // is skipped from then on so the last few tense turns resolve instantly
+    // instead of queuing 1.5s+ animations back to back. Victory/defeat FX at
+    // match end are untouched — this only silences the per-move recap popups.
+    lowTimeAnimationsOff: false,
     targetingMode: { isActive: false, type: null, actorId: null, firstTargetId: null, metadata: null },
     p1KnightShields: 0,
     p2KnightShields: 0,
@@ -1299,6 +1381,68 @@ function blVibrateStop() {
 // True once this match's win/loss vibration has already fired, so repeated
 // renderScene() calls after the game ends don't keep re-triggering it.
 let gameOverVibrated = false;
+// True once this match's victory/defeat screen FX (confetti or glitch) has
+// already played, so repeated renderScene() calls don't replay it.
+let gameOverFXPlayed = false;
+
+// Confetti burst for a clean win. Spawns a handful of short-lived DOM nodes
+// with randomized drift/rotation/timing and cleans each one up individually
+// once its own fall animation finishes, so nothing lingers between matches.
+const ELD_CONFETTI_COLORS = ['#ff3333', '#ffcc00', '#4af7a7', '#f7f8f8', '#8a6cff'];
+function playVictoryFX() {
+    const flash = document.createElement('div');
+    flash.className = 'eld-victory-flash';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 1950);
+
+    const pieceCount = 70;
+    for (let i = 0; i < pieceCount; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'eld-confetti-piece';
+        const xStart = Math.random() * 100;
+        const drift = (Math.random() * 50 - 25) + 'vw';
+        const rot = (360 + Math.random() * 720) + 'deg';
+        const duration = 2.1 + Math.random() * 1.6;
+        const delay = Math.random() * 0.5;
+        piece.style.left = xStart + 'vw';
+        piece.style.setProperty('--eld-drift', drift);
+        piece.style.setProperty('--eld-rot', rot);
+        piece.style.background = ELD_CONFETTI_COLORS[Math.floor(Math.random() * ELD_CONFETTI_COLORS.length)];
+        piece.style.width = (5 + Math.random() * 5) + 'px';
+        piece.style.height = (10 + Math.random() * 8) + 'px';
+        piece.style.animationDuration = duration + 's';
+        piece.style.animationDelay = delay + 's';
+        document.body.appendChild(piece);
+        setTimeout(() => piece.remove(), (duration + delay) * 1000 + 200);
+    }
+}
+
+// Red glitch/shatter FX for a loss (or mutual wipeout) — a quick screen
+// shake, a flickering red flash overlay, and a few horizontal "glitch bars"
+// that streak across the screen once and clean themselves up.
+function playDefeatFX() {
+    document.body.classList.add('eld-shake');
+    setTimeout(() => document.body.classList.remove('eld-shake'), 650);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'eld-defeat-overlay';
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.remove(), 1100);
+
+    const barCount = 9;
+    for (let i = 0; i < barCount; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'eld-glitch-bar';
+        bar.style.top = (Math.random() * 100) + 'vh';
+        bar.style.height = (2 + Math.random() * 6) + 'px';
+        bar.style.background = Math.random() < 0.55 ? '#ff3333' : '#0d0c14';
+        const duration = 0.5 + Math.random() * 0.3;
+        bar.style.animationDuration = duration + 's';
+        bar.style.animationDelay = (Math.random() * 0.35) + 's';
+        document.body.appendChild(bar);
+        setTimeout(() => bar.remove(), (duration * 1000) + 400);
+    }
+}
 
 // ============================================================================
 // MATCH STATISTICS TRACKER
@@ -1581,6 +1725,7 @@ function startMoveTimer(side) {
     // acted on yet) — the correct moment to snapshot for a later Undo.
     if (side === 1) captureUndoSnapshot();
     let duration = aliveCharacterCount() * 2;
+    if (duration <= 8) gameState.lowTimeAnimationsOff = true;
     gameState.moveTimer.secondsLeft = duration;
     gameState.moveTimer.forSide = side;
     renderMoveTimerDisplay();
@@ -1681,6 +1826,10 @@ function cardSideLabel(card) {
 // side unless overridden). opts.name lets callers override the displayed
 // name (e.g. "3 Cards" for a mass-release).
 function queueRecap(kind, card, opts = {}) {
+    // Endgame speed-up: once the board is down to 4-or-fewer total living
+    // characters (an 8s-or-less move clock), stop showing recap popups for
+    // the rest of the match so the final tense turns resolve instantly.
+    if (gameState.lowTimeAnimationsOff) return;
     if (!RECAP_STYLES[kind]) return;
     if (!card && !opts.name) return;
     recapQueue.push({ kind, name: opts.name || card.name, side: opts.side || cardSideLabel(card) });
@@ -2554,6 +2703,7 @@ function resetToSetup(fromPopstate) {
     if (botTurnTimeoutHandle) { clearTimeout(botTurnTimeoutHandle); botTurnTimeoutHandle = null; }
     undoState = { snapshot: null, pendingSnapshot: null, awaitingResponse: false, incomingRequest: false, waitingForSync: false };
     gameOverVibrated = false;
+    gameOverFXPlayed = false;
     document.getElementById('gameView').style.display = 'none';
     document.getElementById('draftView').style.display = 'none';
     document.getElementById('setupView').style.display = 'block';
@@ -2652,6 +2802,8 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
     if (botTurnTimeoutHandle) { clearTimeout(botTurnTimeoutHandle); botTurnTimeoutHandle = null; }
     undoState = { snapshot: null, pendingSnapshot: null, awaitingResponse: false, incomingRequest: false, waitingForSync: false };
     gameOverVibrated = false;
+    gameOverFXPlayed = false;
+    gameState.lowTimeAnimationsOff = false;
     matchStats = {};
     matchSummaryShown = false;
     abortTargetingSequence();
@@ -5987,6 +6139,20 @@ function renderScene() {
             gameOverVibrated = true;
             let p1Alive = gameState.p1.some(c => c.hex > 0 && !c.imprisoned);
             blVibrate(p1Alive ? [80, 60, 80, 60, 160] : [300]);
+        }
+        if (!gameOverFXPlayed) {
+            gameOverFXPlayed = true;
+            let p1Alive = gameState.p1.some(c => c.hex > 0 && !c.imprisoned);
+            let p2Alive = gameState.p2.some(c => c.hex > 0 && !c.imprisoned);
+            // Clean win → confetti. A loss or mutual wipeout both feel like
+            // "this went wrong" from the player's seat, so both get the
+            // red glitch treatment rather than trying to invent a third FX
+            // for the rare draw case.
+            if (p1Alive && !p2Alive) {
+                playVictoryFX();
+            } else {
+                playDefeatFX();
+            }
         }
         if (!matchSummaryShown) {
             matchSummaryShown = true;
