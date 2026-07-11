@@ -699,6 +699,12 @@
         <button onclick="mpAbandonReconnect()" style="margin-left:10px; background:#0d0c14; color:#4af7a7; border:none; border-radius:4px; padding:4px 10px; font-size:10px; font-weight:700; cursor:pointer;">GIVE UP &amp; RETURN TO MENU</button>
     </div>
 
+    <div id="inviteBanner" style="display:none; position:fixed; top:0; left:0; right:0; background:#ffcc00; color:#0d0c14; text-align:center; padding:8px 6px; font-size:12px; font-weight:700; z-index:9999; letter-spacing:0.03em;">
+        <span id="inviteBannerText"></span>
+        <button onclick="blAcceptInvite()" style="margin-left:10px; background:#0d0c14; color:#ffcc00; border:none; border-radius:4px; padding:4px 10px; font-size:10px; font-weight:700; cursor:pointer;">ACCEPT</button>
+        <button onclick="blDeclineInvite()" style="margin-left:6px; background:#0d0c14; color:#ff8888; border:none; border-radius:4px; padding:4px 10px; font-size:10px; font-weight:700; cursor:pointer;">DECLINE</button>
+    </div>
+
     <div id="setupView" class="setup-screen">
         <h1>BLOODLUST</h1>
 
@@ -1403,9 +1409,12 @@ function blRenderAccountUI() {
         loggedIn.style.display = 'flex';
         document.getElementById('accountWelcome').innerText = `👤 Logged in as ${blAccount.username}`;
         blRefreshFriends();
+        blStartInvitePolling();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
+        blStopInvitePolling();
+        blHideInviteBanner();
     }
 }
 
@@ -1462,6 +1471,9 @@ function blLogout() {
 // ============================================================================
 let blFriendsData = { friends: [], incoming: [], outgoing: [] };
 let blFriendsTab = 'list';
+let blLastSentInviteId = null;
+let blPendingInvite = null;
+let blInvitePollTimer = null;
 
 function openFriendsModal() {
     if (!blAccount) return;
@@ -1505,12 +1517,54 @@ function blRenderFriendsList() {
         el.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">No friends yet — add one from the "Add" tab.</div>';
         return;
     }
-    el.innerHTML = friends.map(name => `
-        <div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between;">
-            <span class="guide-card-name">${blEscapeHtml(name)}</span>
-            <button class="account-btn account-btn-alt" style="flex:none; padding:6px 10px; font-size:10px;" onclick="blRemoveFriend('${blEscapeJs(name)}')">Remove</button>
+    el.innerHTML = friends.map((name, i) => `
+        <div class="guide-card-entry">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span class="guide-card-name">${blEscapeHtml(name)}</span>
+                <div style="display:flex; gap:4px;">
+                    <button class="account-btn" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blToggleInviteChooser(${i})">🎮 Invite</button>
+                    <button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRemoveFriend('${blEscapeJs(name)}')">Remove</button>
+                </div>
+            </div>
+            <div id="inviteChooser-${i}" class="invite-chooser-row" style="display:none; gap:6px; margin-top:8px;">
+                <button class="account-btn" style="padding:7px 4px; font-size:10px;" onclick="blInviteFriend(${i}, 'random')">🎲 Random</button>
+                <button class="account-btn account-btn-alt" style="padding:7px 4px; font-size:10px;" onclick="blInviteFriend(${i}, 'draft')">📝 Draft</button>
+            </div>
         </div>
     `).join('');
+}
+
+function blToggleInviteChooser(i) {
+    const rows = document.querySelectorAll('.invite-chooser-row');
+    rows.forEach((el, idx) => {
+        el.style.display = (idx === i && el.style.display !== 'flex') ? 'flex' : 'none';
+    });
+}
+
+async function blInviteFriend(i, mode) {
+    const friendName = (blFriendsData.friends || [])[i];
+    if (!friendName || !blAccount) return;
+    if (!mpReady()) return;
+
+    const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const result = await blCallAccountRpc('send_match_invite', {
+        p_from_username: blAccount.username,
+        p_to_username: friendName,
+        p_room_code: code,
+        p_squad_mode: mode
+    });
+    if (!result.ok) {
+        alert(result.error || 'Could not send that invite.');
+        return;
+    }
+    blLastSentInviteId = result.invite_id;
+
+    closeFriendsModal();
+    showTopMode('mp', document.querySelector('#topModePicker .picker-btn[data-top-mode="mp"]'));
+    mpSetSquadMode(mode, document.querySelector(`#mpPanel .picker-btn[data-mp-mode="${mode}"]`));
+    document.getElementById('mpRoomCodeDisplay').innerText = 'CODE: ' + code;
+    mpConnectDirect(code);
+    mpLog(`Invite sent to ${friendName} — waiting for them to accept...`);
 }
 
 function blRenderFriendsRequests() {
@@ -1584,6 +1638,56 @@ function blEscapeHtml(s) {
 }
 function blEscapeJs(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+// ---- Match invites: polling for and responding to incoming invites -------
+function blStartInvitePolling() {
+    if (blInvitePollTimer) return;
+    blInvitePollTimer = setInterval(blCheckInvites, 4000);
+    blCheckInvites();
+}
+function blStopInvitePolling() {
+    if (blInvitePollTimer) { clearInterval(blInvitePollTimer); blInvitePollTimer = null; }
+}
+
+async function blCheckInvites() {
+    if (!blAccount) return;
+    if (blPendingInvite) return; // already showing one, wait for a response first
+    if (document.getElementById('setupView').style.display === 'none') return; // busy in a match/draft
+    const result = await blCallAccountRpc('get_pending_invites', { p_username: blAccount.username });
+    if (!result.ok) return;
+    const invites = result.invites || [];
+    if (invites.length > 0) blShowInviteBanner(invites[0]);
+}
+
+function blShowInviteBanner(invite) {
+    blPendingInvite = invite;
+    const modeLabel = invite.squad_mode === 'draft' ? 'Draft' : 'Random';
+    document.getElementById('inviteBannerText').innerText = `🎮 ${invite.from_username} invited you to a ${modeLabel} match!`;
+    document.getElementById('inviteBanner').style.display = 'block';
+}
+function blHideInviteBanner() {
+    document.getElementById('inviteBanner').style.display = 'none';
+    blPendingInvite = null;
+}
+
+async function blAcceptInvite() {
+    if (!blPendingInvite) return;
+    const invite = blPendingInvite;
+    blHideInviteBanner();
+    await blCallAccountRpc('respond_match_invite', { p_invite_id: invite.id, p_accept: true });
+
+    showTopMode('mp', document.querySelector('#topModePicker .picker-btn[data-top-mode="mp"]'));
+    mpSetSquadMode(invite.squad_mode, document.querySelector(`#mpPanel .picker-btn[data-mp-mode="${invite.squad_mode}"]`));
+    mpConnectDirect(invite.room_code);
+    mpLog(`Joining ${invite.from_username}'s match...`);
+}
+
+async function blDeclineInvite() {
+    if (!blPendingInvite) return;
+    const invite = blPendingInvite;
+    blHideInviteBanner();
+    await blCallAccountRpc('respond_match_invite', { p_invite_id: invite.id, p_accept: false });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2217,6 +2321,10 @@ function mpTeardownConnection() {
     }
     teardownVoice();
     mpClearSession();
+    if (blLastSentInviteId) {
+        blCallAccountRpc('cancel_match_invite', { p_invite_id: blLastSentInviteId });
+        blLastSentInviteId = null;
+    }
     mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby' };
     const codeEl = document.getElementById('mpRoomCodeDisplay');
     if (codeEl) codeEl.innerText = '';
