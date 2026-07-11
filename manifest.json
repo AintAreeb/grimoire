@@ -2,7 +2,7 @@
   "name": "Eldritch",
   "short_name": "Eldritch",
   "description": "A tactical turn-based card battle between Bloodbane and Bloodborne factions.",
-  "start_url": "./Eldritch.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#080710",
@@ -10,8 +10,8 @@
   "icons": [
     {
       "src": "icon.png",
-      "sizes": "16x16 32x32 48x48 96x96 128x128 192x192 256x256",
-      "type": "image/x-icon",
+      "sizes": "256x256",
+      "type": "image/png",
       "purpose": "any"
     }
   ]
