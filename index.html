@@ -725,6 +725,52 @@
             padding: 10px; font-size: 11px; font-weight: 600; cursor: pointer; text-transform: uppercase;
             letter-spacing: 0.04em;
         }
+        /* Music playlist (lives inside the Settings modal, alongside
+           Vibration) — each player builds/plays their own list locally. */
+        .music-hint { font-size: 9px; color: #5a5f68; margin: -4px 0 10px 0; line-height: 1.4; }
+        .music-apikey-row { display: flex; gap: 6px; margin-bottom: 6px; }
+        .music-apikey-row input { flex: 1; min-width: 0; }
+        .music-apikey-row button {
+            flex-shrink: 0; background: #2a2932; color: #f7f8f8; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; padding: 9px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+        }
+        .music-search-row { display: flex; gap: 6px; margin-bottom: 8px; }
+        .music-search-row input { flex: 1; min-width: 0; }
+        .music-search-btn {
+            flex-shrink: 0; background: #2a2932; color: #f7f8f8; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; padding: 9px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+        }
+        .music-result-list, .music-playlist-list { margin-bottom: 12px; }
+        .music-result-item, .music-playlist-item {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px; padding: 7px 9px; margin-bottom: 5px;
+        }
+        .music-item-title {
+            flex: 1; min-width: 0; font-size: 11px; color: #f7f8f8;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .music-item-channel { font-size: 9px; color: #8a8f98; display: block; }
+        .music-add-btn, .music-remove-btn {
+            flex-shrink: 0; background: #1a1922; color: #4af7a7; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; width: 24px; height: 24px; font-size: 13px; font-weight: 700; cursor: pointer;
+            line-height: 1;
+        }
+        .music-remove-btn { color: #ff5555; }
+        .music-playlist-item input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: #4af7a7; }
+        .music-playlist-item.music-item-playing .music-item-title { color: #4af7a7; }
+        .music-empty-note { font-size: 11px; color: #5a5f68; margin: 4px 0 10px 0; text-align: center; }
+        .music-player-controls { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+        .music-play-btn, .music-skip-btn {
+            flex-shrink: 0; background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
+            color: #f7f8f8; font-size: 14px; border-radius: 50%; width: 34px; height: 34px; cursor: pointer;
+        }
+        .music-volume-row { display: flex; align-items: center; gap: 6px; flex: 1; }
+        .music-volume-row input[type="range"] { flex: 1; accent-color: #4af7a7; }
+        .music-now-playing {
+            font-size: 10px; color: #8a8f98; text-align: center; margin-top: 8px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
         /* Account login/register box */
         .account-box {
             background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
@@ -976,6 +1022,15 @@
         }, 5000);
     </script>
 
+    <!-- YouTube IFrame Player API, used only for local background-music
+         playback of each player's own playlist (see musicPlayerHost). -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+
+    <!-- Hidden host for the YouTube background-music player (audio only —
+         kept off-screen rather than display:none, since some browsers
+         suspend playback on fully display:none iframes). -->
+    <div id="musicPlayerHost" style="position:fixed; top:-9999px; left:-9999px; width:1px; height:1px; overflow:hidden;"></div>
+
     <div id="reconnectBanner" style="display:none; position:fixed; top:0; left:0; right:0; background:#4af7a7; color:#0d0c14; text-align:center; padding:8px 6px; font-size:12px; font-weight:700; z-index:9999; letter-spacing:0.03em;">
         RECONNECTING TO YOUR MATCH…
         <button onclick="mpAbandonReconnect()" style="margin-left:10px; background:#0d0c14; color:#4af7a7; border:none; border-radius:4px; padding:4px 10px; font-size:10px; font-weight:700; cursor:pointer;">GIVE UP &amp; RETURN TO MENU</button>
@@ -1110,6 +1165,9 @@
                     onpointerleave="pttEnd(event)" onpointercancel="pttEnd(event)">🗣️ Talk</button>
                 <button id="muteOpponentBtn" class="voice-btn" style="display:none;" onclick="toggleOpponentMute()">🔊 Opp</button>
                 <button id="chatOpenBtn" class="voice-btn" onclick="openChatModal()">💬 Chat</button>
+                <button id="musicPrevBtnBar" class="voice-btn" onclick="musicPrev()">⏮️</button>
+                <button id="musicPlayBtnBar" class="voice-btn" onclick="musicTogglePlay()">▶️</button>
+                <button id="musicNextBtnBar" class="voice-btn" onclick="musicSkip()">⏭️</button>
             </div>
         </div>
     </div>
@@ -1188,6 +1246,31 @@
                 </div>
                 <button id="vibrationToggleBtn" class="settings-toggle-btn" onclick="toggleVibrationSetting()"></button>
             </div>
+
+            <div class="guide-section-label">🎵 Your Playlist</div>
+            <div class="music-hint">Only you hear this — it plays locally and isn't shared with your opponent.</div>
+            <div class="music-apikey-row">
+                <input type="password" id="musicPersonalKeyInput" class="account-input" style="margin-bottom:0;" placeholder="Your own YouTube API key (optional)">
+                <button onclick="musicSavePersonalKey()">Save</button>
+            </div>
+            <div class="music-hint">Optional — if you add your own key, it's tried first and only counts against your own quota, so you're never affected by other players' searches.</div>
+            <div class="music-search-row">
+                <input type="text" id="musicSearchInput" class="account-input" style="margin-bottom:0;" placeholder="Search a song..." onkeydown="if(event.key==='Enter') musicSearch()">
+                <button class="music-search-btn" onclick="musicSearch()">Search</button>
+            </div>
+            <div class="music-result-list" id="musicResultList"></div>
+            <div class="guide-section-label">Playlist (checked = plays on repeat)</div>
+            <div class="music-playlist-list" id="musicPlaylistList"></div>
+            <div class="music-player-controls">
+                <button class="music-skip-btn" onclick="musicPrev()">⏮️</button>
+                <button class="music-play-btn" id="musicPlayBtn" onclick="musicTogglePlay()">▶️</button>
+                <button class="music-skip-btn" onclick="musicSkip()">⏭️</button>
+                <div class="music-volume-row">
+                    <span style="font-size:11px;">🔉</span>
+                    <input type="range" id="musicVolumeSlider" min="0" max="100" value="50" oninput="musicSetVolume(this.value)">
+                </div>
+            </div>
+            <div class="music-now-playing" id="musicNowPlaying"></div>
         </div>
         <button class="guide-close-btn" onclick="closeSettingsModal()">Close</button>
     </div>
@@ -2276,6 +2359,11 @@ function renderSettingsModal() {
     const btn = document.getElementById('vibrationToggleBtn');
     if (!btn) return;
     btn.classList.toggle('settings-toggle-on', !!blSettings.vibration);
+    document.getElementById('musicPersonalKeyInput').value = blMusic.personalApiKey ? '••••••••' : '';
+    document.getElementById('musicVolumeSlider').value = blMusic.volume;
+    document.getElementById('musicResultList').innerHTML = '';
+    musicRenderPlaylist();
+    musicUpdatePlayBtn();
 }
 function toggleVibrationSetting() {
     blSettings.vibration = !blSettings.vibration;
@@ -6593,6 +6681,230 @@ function renderTutorStep() {
     document.getElementById('tutorPrevBtn').disabled = isFirst;
     document.getElementById('tutorNextBtn').innerText = isLast ? 'Done ✓' : 'Next →';
     document.getElementById('tutorNextBtn').onclick = isLast ? closeGuideModal : () => tutorStep(1);
+}
+
+// ============================================================================
+// MUSIC PLAYLIST (local-only background music via the YouTube IFrame API).
+// Each player searches for and adds their own tracks, checks which ones
+// should be in rotation, and playback loops through that checked set.
+// Nothing here goes over the Trystero room — it's stored in localStorage
+// per browser, so each player can have a completely different soundtrack
+// playing at the same time.
+// ============================================================================
+// Shared YouTube Data API v3 keys, used only for search — fill these in
+// once in Google Cloud Console (restrict each to the YouTube Data API v3).
+// You can list up to 7-8 keys here. Search tries a player's own personal
+// key first (if they've added one in Settings), then falls through this
+// shared list in order; if a key hits its daily quota, it's skipped for
+// the rest of the session and the next one is tried automatically.
+// Playback and each player's own playlist stay local to their browser
+// regardless of which key served the search.
+const BL_YT_API_KEYS = [
+    'PASTE_YOUR_YOUTUBE_API_KEY_1_HERE',
+    // 'PASTE_YOUR_YOUTUBE_API_KEY_2_HERE',
+    // 'PASTE_YOUR_YOUTUBE_API_KEY_3_HERE',
+    // ...add up to 7-8 keys total
+];
+
+const BL_MUSIC_KEY = 'eldritch_music';
+let blMusic = { playlist: [], volume: 50, personalApiKey: '' };
+// Keys that have come back quota-exceeded this session — skipped on
+// subsequent searches so we don't keep wasting calls retrying them.
+// Not persisted, since quota resets daily and keys can change.
+let musicExhaustedKeys = new Set();
+function musicLoad() {
+    try {
+        const raw = localStorage.getItem(BL_MUSIC_KEY);
+        if (raw) blMusic = { ...blMusic, ...JSON.parse(raw) };
+    } catch (e) { /* ignore corrupt/missing data, keep defaults */ }
+}
+function musicSave() {
+    try { localStorage.setItem(BL_MUSIC_KEY, JSON.stringify(blMusic)); } catch (e) {}
+}
+musicLoad();
+
+let musicYtPlayer = null;
+let musicYtReady = false;
+let musicCurrentIndex = -1; // index into the checked-tracks rotation, not the full playlist
+let musicIsPlaying = false;
+
+// Called automatically by the YouTube IFrame API once its script finishes
+// loading (window.onYouTubeIframeAPIReady is its required hook name).
+function onYouTubeIframeAPIReady() {
+    musicYtPlayer = new YT.Player('musicPlayerHost', {
+        height: '1', width: '1',
+        playerVars: { autoplay: 0, controls: 0 },
+        events: {
+            onReady: () => {
+                musicYtReady = true;
+                musicYtPlayer.setVolume(blMusic.volume);
+            },
+            onStateChange: (e) => {
+                if (e.data === YT.PlayerState.ENDED) musicSkip();
+                if (e.data === YT.PlayerState.PLAYING) { musicIsPlaying = true; musicUpdatePlayBtn(); }
+                if (e.data === YT.PlayerState.PAUSED) { musicIsPlaying = false; musicUpdatePlayBtn(); }
+            }
+        }
+    });
+}
+
+function musicCheckedTracks() {
+    return blMusic.playlist.filter(t => t.checked);
+}
+function musicEscape(s) { return (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function musicEscapeAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+function musicSavePersonalKey() {
+    const input = document.getElementById('musicPersonalKeyInput');
+    blMusic.personalApiKey = input.value.trim();
+    musicExhaustedKeys.clear(); // a freshly-saved key deserves a clean try
+    musicSave();
+    input.value = blMusic.personalApiKey ? '••••••••' : '';
+}
+
+// Personal key (if the player added one in Settings) goes first, then the
+// shared keys baked into the game, in order.
+function musicGetKeys() {
+    const personal = (blMusic.personalApiKey || '').trim();
+    const shared = BL_YT_API_KEYS.filter(k => k && !k.startsWith('PASTE_'));
+    return personal ? [personal, ...shared] : shared;
+}
+
+// Tries each available key, skipping any already known this session to be
+// quota-exceeded, and falls through to the next one automatically.
+async function musicSearch() {
+    const q = document.getElementById('musicSearchInput').value.trim();
+    const resultList = document.getElementById('musicResultList');
+    if (!q) return;
+    const allKeys = musicGetKeys();
+    if (allKeys.length === 0) {
+        resultList.innerHTML = '<div class="music-empty-note">Music search isn\'t set up yet — add your own YouTube API key above, or ask the game owner to add one.</div>';
+        return;
+    }
+    const keys = allKeys.filter(k => !musicExhaustedKeys.has(k));
+    if (keys.length === 0) {
+        resultList.innerHTML = '<div class="music-empty-note">All search keys have hit today\'s limit — try again after midnight Pacific Time.</div>';
+        return;
+    }
+    resultList.innerHTML = '<div class="music-empty-note">Searching…</div>';
+    for (const key of keys) {
+        try {
+            const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!res.ok) {
+                const reason = data?.error?.errors?.[0]?.reason || '';
+                if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
+                    // This key is tapped out for today — remember that and
+                    // fall through to try the next one in the list.
+                    musicExhaustedKeys.add(key);
+                    continue;
+                }
+                resultList.innerHTML = `<div class="music-empty-note">${musicEscape(data?.error?.message) || 'Search failed.'}</div>`;
+                return;
+            }
+            const items = data.items || [];
+            if (items.length === 0) {
+                resultList.innerHTML = '<div class="music-empty-note">No results.</div>';
+                return;
+            }
+            resultList.innerHTML = items.map(it => {
+                const vid = it.id.videoId;
+                const title = musicEscape(it.snippet.title);
+                const channel = musicEscape(it.snippet.channelTitle);
+                return `<div class="music-result-item">
+                    <div class="music-item-title">${title}<span class="music-item-channel">${channel}</span></div>
+                    <button class="music-add-btn" onclick="musicAddTrack('${vid}', '${musicEscapeAttr(it.snippet.title)}', '${musicEscapeAttr(it.snippet.channelTitle)}')">+</button>
+                </div>`;
+            }).join('');
+            return;
+        } catch (e) {
+            resultList.innerHTML = '<div class="music-empty-note">Search failed — check your connection.</div>';
+            return;
+        }
+    }
+    resultList.innerHTML = '<div class="music-empty-note">All search keys have hit today\'s limit — try again after midnight Pacific Time.</div>';
+}
+
+function musicAddTrack(videoId, title, channel) {
+    if (blMusic.playlist.some(t => t.videoId === videoId)) return;
+    blMusic.playlist.push({ videoId, title, channel, checked: true });
+    musicSave();
+    musicRenderPlaylist();
+}
+function musicRemoveTrack(videoId) {
+    blMusic.playlist = blMusic.playlist.filter(t => t.videoId !== videoId);
+    musicSave();
+    musicRenderPlaylist();
+}
+function musicToggleChecked(videoId, checked) {
+    const t = blMusic.playlist.find(t => t.videoId === videoId);
+    if (t) t.checked = checked;
+    musicSave();
+    musicRenderPlaylist();
+}
+
+function musicRenderPlaylist() {
+    const list = document.getElementById('musicPlaylistList');
+    if (!list) return;
+    if (blMusic.playlist.length === 0) {
+        list.innerHTML = '<div class="music-empty-note">Search above and add a few tracks.</div>';
+        musicUpdateNowPlaying();
+        return;
+    }
+    const checkedTracks = musicCheckedTracks();
+    const currentTrack = checkedTracks[musicCurrentIndex];
+    list.innerHTML = blMusic.playlist.map(t => {
+        const isPlaying = currentTrack && currentTrack.videoId === t.videoId;
+        return `<div class="music-playlist-item${isPlaying ? ' music-item-playing' : ''}">
+            <input type="checkbox" ${t.checked ? 'checked' : ''} onchange="musicToggleChecked('${t.videoId}', this.checked)">
+            <div class="music-item-title">${musicEscape(t.title)}<span class="music-item-channel">${musicEscape(t.channel)}</span></div>
+            <button class="music-remove-btn" onclick="musicRemoveTrack('${t.videoId}')">✕</button>
+        </div>`;
+    }).join('');
+    musicUpdateNowPlaying();
+}
+
+function musicUpdateNowPlaying() {
+    const el = document.getElementById('musicNowPlaying');
+    if (!el) return;
+    const track = musicCheckedTracks()[musicCurrentIndex];
+    el.innerText = track ? `Now playing: ${track.title}` : '';
+}
+function musicUpdatePlayBtn() {
+    const icon = musicIsPlaying ? '⏸️' : '▶️';
+    const btn = document.getElementById('musicPlayBtn');
+    if (btn) btn.innerText = icon;
+    const barBtn = document.getElementById('musicPlayBtnBar');
+    if (barBtn) barBtn.innerText = icon;
+}
+
+function musicTogglePlay() {
+    const checkedTracks = musicCheckedTracks();
+    if (checkedTracks.length === 0 || !musicYtReady) return;
+    if (musicIsPlaying) { musicYtPlayer.pauseVideo(); return; }
+    if (musicCurrentIndex === -1 || musicCurrentIndex >= checkedTracks.length) musicCurrentIndex = 0;
+    musicYtPlayer.loadVideoById(checkedTracks[musicCurrentIndex].videoId);
+    musicRenderPlaylist();
+}
+function musicSkip() {
+    const checkedTracks = musicCheckedTracks();
+    if (checkedTracks.length === 0 || !musicYtReady) return;
+    musicCurrentIndex = (musicCurrentIndex + 1) % checkedTracks.length;
+    musicYtPlayer.loadVideoById(checkedTracks[musicCurrentIndex].videoId);
+    musicRenderPlaylist();
+}
+function musicPrev() {
+    const checkedTracks = musicCheckedTracks();
+    if (checkedTracks.length === 0 || !musicYtReady) return;
+    musicCurrentIndex = (musicCurrentIndex - 1 + checkedTracks.length) % checkedTracks.length;
+    musicYtPlayer.loadVideoById(checkedTracks[musicCurrentIndex].videoId);
+    musicRenderPlaylist();
+}
+function musicSetVolume(v) {
+    blMusic.volume = Number(v);
+    musicSave();
+    if (musicYtReady) musicYtPlayer.setVolume(blMusic.volume);
 }
 </script>
 </body>
