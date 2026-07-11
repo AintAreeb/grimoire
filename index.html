@@ -741,9 +741,10 @@
             flex-shrink: 0; background: #2a2932; color: #f7f8f8; border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px; padding: 9px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
         }
+        .music-getkey-row { display: flex; gap: 14px; margin: 4px 0 8px 0; }
         .music-getkey-link {
             display: block; font-size: 10px; color: #ff5555; text-decoration: none;
-            margin: 4px 0 8px 0; font-weight: 600;
+            font-weight: 600;
         }
         .music-getkey-link:active { opacity: 0.7; }
         .music-search-row { display: flex; gap: 6px; margin-bottom: 8px; }
@@ -1271,7 +1272,10 @@
                 <input type="password" id="musicPersonalKeyInput" class="account-input" style="margin-bottom:0;" placeholder="Your own YouTube API key (required)">
                 <button onclick="musicSavePersonalKey()">Save</button>
             </div>
-            <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener" class="music-getkey-link">Get your API key →</a>
+            <div class="music-getkey-row">
+                <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener" class="music-getkey-link">Get your API key →</a>
+                <a href="https://www.youtube.com/results?search_query=how+to+get+a+youtube+data+api+key+tutorial" target="_blank" rel="noopener" class="music-getkey-link">🎥 Watch tutorial →</a>
+            </div>
             <div class="music-hint">Required to search — it only counts against your own free quota, so you're never affected by other players' searches.</div>
             <div class="music-search-row">
                 <input type="text" id="musicSearchInput" class="account-input" style="margin-bottom:0;" placeholder="Search a song..." onkeydown="if(event.key==='Enter') musicSearch()">
