@@ -2755,6 +2755,11 @@ function startMoveTimer(side) {
     gameState.moveTimer.forSide = side;
     renderMoveTimerDisplay();
     gameState.moveTimer.intervalId = setInterval(() => {
+        // Freeze the clock while a kill/move recap animation is on screen —
+        // it's a full-screen overlay the player can't act during, so the
+        // countdown shouldn't burn away behind it. Ticking just stalls here
+        // until recapPlaying drops back to false, then resumes normally.
+        if (recapPlaying) return;
         gameState.moveTimer.secondsLeft--;
         if (gameState.moveTimer.secondsLeft <= 0) {
             stopMoveTimer();
