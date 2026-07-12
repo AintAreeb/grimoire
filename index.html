@@ -484,6 +484,22 @@
             flex-shrink: 0;
         }
 
+        .bartender-modal-close-btn {
+            background: rgba(255, 255, 255, 0.06);
+            color: #b8bcc4;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            margin-top: 6px;
+            flex-shrink: 0;
+        }
+        .bartender-modal-close-btn:active { background: rgba(255, 255, 255, 0.14); }
+
         .card-title {
             margin-top: 4px;
             font-size: 11px;
@@ -1479,46 +1495,55 @@
     <div id="bartenderChoiceModal" class="bartender-modal">
         <h3>CHOOSE OPPONENT'S FORCED ACTION CARD</h3>
         <div id="bartenderOptionsContainer" style="display:flex; flex-direction:column; gap:4px;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('bartenderChoiceModal')">Cancel</button>
     </div>
 
     <div id="actorChoiceModal" class="bartender-modal">
         <h3>CHOOSE CARD ROLE TO MIMIC</h3>
         <div id="actorOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('actorChoiceModal')">Cancel</button>
     </div>
 
     <div id="dementorChoiceModal" class="bartender-modal">
         <h3>CHOOSE DEAD ROLE TO MIMIC</h3>
         <div id="dementorOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('dementorChoiceModal')">Cancel</button>
     </div>
 
     <div id="sorcererChoiceModal" class="bartender-modal">
         <h3>CHOOSE OPPONENT CARD TO HIJACK</h3>
         <div id="sorcererOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('sorcererChoiceModal')">Cancel</button>
     </div>
 
     <div id="mechaChoiceModal" class="bartender-modal">
         <h3>CHOOSE ALLY CARD TO FUSE</h3>
         <div id="mechaOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('mechaChoiceModal')">Cancel</button>
     </div>
 
     <div id="skinwalkerChoiceModal" class="bartender-modal">
         <h3>CHOOSE FORM TO TRANSFORM INTO</h3>
         <div id="skinwalkerOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('skinwalkerChoiceModal')">Cancel</button>
     </div>
 
     <div id="hackerOwnChoiceModal" class="bartender-modal">
         <h3>CHOOSE YOUR CARD TO SWAP</h3>
         <div id="hackerOwnOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('hackerOwnChoiceModal')">Cancel</button>
     </div>
 
     <div id="hackerEnemyChoiceModal" class="bartender-modal">
         <h3>CHOOSE ENEMY CARD TO SWAP WITH</h3>
         <div id="hackerEnemyOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 200px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeChoicePad('hackerEnemyChoiceModal')">Cancel</button>
     </div>
 
     <div id="mergedActionModal" class="bartender-modal">
         <h3 id="mergedActionModalTitle">CHOOSE ACTION</h3>
         <div id="mergedActionOptionsContainer" style="display:flex; flex-direction:column; gap:4px; max-height: 240px; overflow-y: auto;"></div>
+        <button class="bartender-modal-close-btn" onclick="closeMergedActionModal()">Cancel</button>
     </div>
 
 <script>
@@ -1551,20 +1576,22 @@ const CARD_POOL = [
     { name: 'Hacker', tag: 'Criminal', maxHex: 2, tier: 3, cooldown: '3moves', category: 'Bloodborne' },
     { name: 'Warlock', tag: 'Mystic', maxHex: 3, tier: 3, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Kitsune', tag: 'Entity', maxHex: 1, tier: 3, cooldown: 'consecutive', category: 'Bloodborne' },
+    { name: 'Samurai', tag: 'Assassin', maxHex: 2, tier: 3, cooldown: 'consecutive', category: 'Bloodborne' },
 
     // Heroics/SacredSouls
     { name: 'Actor', tag: 'Artist', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
     { name: 'Therapist', tag: 'Medic', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
     { name: 'Princess', tag: 'Artist', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
     { name: 'Reporter', tag: 'Law & Order', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
-    { name: 'Terrorist', tag: 'Criminal', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' }
+    { name: 'Terrorist', tag: 'Criminal', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
+    { name: 'Warden', tag: 'Law & Order', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' }
 ];
 
 // Roles that 'Dementor' is forbidden from reanimating: the entire
 // Heroic/SacredSouls category plus Wendigo, Sorcerer, Chronos, Mecha, and Bartender.
-const DEMENTOR_FORBIDDEN_ROLES = ['Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist', 'Wendigo', 'Sorcerer', 'Chronos', 'Mecha', 'Bartender', 'Kitsune'];
+const DEMENTOR_FORBIDDEN_ROLES = ['Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist', 'Warden', 'Wendigo', 'Sorcerer', 'Chronos', 'Mecha', 'Bartender', 'Kitsune', 'Samurai'];
 // Cards that 'Sorcerer' is forbidden from hijacking/controlling, beyond Heroics.
-const SORCERER_FORBIDDEN_ROLES = ['Wendigo', 'Dementor', 'Chronos', 'Bartender', 'Mecha', 'Kitsune'];
+const SORCERER_FORBIDDEN_ROLES = ['Wendigo', 'Dementor', 'Chronos', 'Bartender', 'Mecha', 'Kitsune', 'Samurai'];
 
 // The set of roles whose moves Bartender is able to copy (the same set
 // Actor/Dementor are able to mimic). If the opponent's last move wasn't
@@ -1605,6 +1632,13 @@ let gameState = {
     targetingMode: { isActive: false, type: null, actorId: null, firstTargetId: null, metadata: null },
     p1KnightShields: 0,
     p2KnightShields: 0,
+    // Samurai doom tracking. null = inactive. 'blocking' = the enemy's very
+    // next move is the one where its 1-hex cards got locked out (set the
+    // instant Samurai is played). 'active' = the enemy's move AFTER that is
+    // armed: whichever card they play next dies the instant its own ability
+    // finishes resolving. See finalizeActiveTurn() and processBotTurnRoutine().
+    p1SamuraiDoom: null,
+    p2SamuraiDoom: null,
     botLastAttackRecord: null,
     playerLastAttackRecord: null,
     forcedBotActorName: null,
@@ -2278,7 +2312,8 @@ const TITLE_DEFS = [
     { id: 'dyrnwyn', name: 'Dyrnwyn', category: 'character', character: 'Bartender', goal: 10 },
     { id: 'labrys', name: 'Labrys', category: 'character', character: 'Jinn', goal: 10 },
     { id: 'gaebolg', name: 'Gáe Bolg', category: 'character', character: 'Warlock', goal: 10 },
-    { id: 'kogarasumaru', name: 'Kogarasumaru', category: 'character', character: 'Kitsune', goal: 10 }
+    { id: 'kogarasumaru', name: 'Kogarasumaru', category: 'character', character: 'Kitsune', goal: 10 },
+    { id: 'zanshin', name: 'Zanshin', category: 'character', character: 'Samurai', goal: 10 }
 ];
 
 const TITLE_BY_ID_MAP = {};
@@ -3120,7 +3155,7 @@ function concludeTargetedMove(actorId, baseMove, selfTargeted) {
     statsRecordFromSnapshot(gameState.targetingMode.preEffectSnapshot);
     gameState.p1LastMoveRole = deriveMoveRoleForTracking(actorId, baseMove);
     abortTargetingSequence();
-    finalizeActiveTurn();
+    finalizeActiveTurn(actorId);
 }
 
 // Human-readable blurbs shown under the play-style picker so the person
@@ -3861,6 +3896,8 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
     gameState.isGameOver = false;
     gameState.p1KnightShields = 0;
     gameState.p2KnightShields = 0;
+    gameState.p1SamuraiDoom = null;
+    gameState.p2SamuraiDoom = null;
     gameState.botLastAttackRecord = null;
     gameState.playerLastAttackRecord = null;
     gameState.forcedBotActorName = null;
@@ -4817,6 +4854,7 @@ function hasValidTargets(card, allies, enemies) {
     }
     if (card.name === 'Therapist') return relevantRecord !== null && enemies.some(c => c.hex > 0 && !c.imprisoned);
     if (card.name === 'Reporter') return allies.some(c => c.hex > 0);
+    if (card.name === 'Warden') return allies.some(c => c.imprisoned && c.name !== 'Spy') && enemies.some(c => c.hex > 0 && !c.imprisoned && !c.isHeroic);
     if (card.name === 'Actor') return true;
     if (card.name === 'Princess') return relevantRecord !== null;
 
@@ -4923,6 +4961,35 @@ function getHackerEligiblePairs(allies, enemies, actorId) {
     return pairs;
 }
 
+function executeSamuraiStrike(actorId) {
+    let actor = gameState.p1.find(c => c.id === actorId);
+    if (!actor) return;
+    if (actor.name !== 'Spy' && !actor.isHeroic) actor.hex -= 1;
+    actor.hasActivity = true;
+    actor.lastUsedRound = gameState.roundCount;
+
+    // Locks out every enemy card currently sitting on exactly 1 hex for
+    // their very next move, then arms a delayed doom: whichever card the
+    // enemy plays the move AFTER that dies instantly the moment its own
+    // ability finishes resolving. See finalizeActiveTurn() for the kill.
+    let lockedDown = gameState.p2.filter(c => c.hex === 1 && !c.imprisoned);
+    lockedDown.forEach(c => { c.blockedCounter = 1; });
+    gameState.p2SamuraiDoom = 'blocking';
+
+    if (lockedDown.length > 0) {
+        writeLog(`🗡️ Your Samurai's bushido strike locked ${lockedDown.map(c => c.name).join(', ')} out of the enemy's next move — and marked whichever card they play after that to fall the instant its ability resolves.`);
+        lockedDown.forEach(c => queueRecap('lockdown', c));
+    } else {
+        writeLog(`🗡️ Your Samurai found no 1-hex enemies to lock down, but still marked whichever card the enemy plays next to fall the instant its ability resolves.`);
+    }
+
+    statsBump(actor, 'p1', { tactical: 1, moves: 1 });
+    if (actor.hex <= 0) actor.hex = 0;
+    gameState.p1LastMoveRole = null;
+    finalizeActiveTurn(actor.id);
+}
+
+
 function executeKnightFirstMove(actorId) {
     let actor = gameState.p1.find(c => c.id === actorId);
     actor.hex -= 1;
@@ -4932,7 +4999,7 @@ function executeKnightFirstMove(actorId) {
     queueRecap('shield', actor);
     statsBump(actor, 'p1', { tactical: 1, moves: 1 });
     gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
+    finalizeActiveTurn(actor.id);
 }
 
 // Shared reversal step used by Chronos/Princess/Therapist (Imam applies its
@@ -4975,7 +5042,7 @@ function executeChronosTimeTravel(actorId) {
     statsBump(actor, 'p1', statDeltas);
     if (actor.hex <= 0) actor.hex = 0;
     gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
+    finalizeActiveTurn(actor.id);
 }
 
 function executeImamDefensiveBlock(actorId) {
@@ -5011,7 +5078,7 @@ function executeImamDefensiveBlock(actorId) {
     statsBump(actor, 'p1', statDeltas);
     
     gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
+    finalizeActiveTurn(actor.id);
 }
 
 function executePrincessSacrifice(actorId) {
@@ -5031,33 +5098,6 @@ function executePrincessSacrifice(actorId) {
     statsBump(actor, 'p1', statDeltas);
     gameState.botLastAttackRecord = null;
     renderScene();
-}
-
-function executeReporterRelease(cardId) {
-    let actor = gameState.p1.find(c => c.id === cardId);
-    let freedCount = 0;
-    gameState.p1.forEach(c => {
-        if (c.imprisoned) {
-            c.imprisoned = false;
-            freedCount++;
-        }
-    });
-    actor.releasedImprisoned = true;
-    writeLog(`📰 Reporter expose released ${freedCount} imprisoned cards.`);
-    if (freedCount > 0) {
-        statsBump(actor, 'p1', { tactical: freedCount });
-        queueRecap('freed', actor, { name: freedCount === 1 ? '1 Card' : `${freedCount} Cards`, side: 'YOUR SQUAD' });
-    }
-    renderScene();
-}
-
-function commitReporterTurn(cardId) {
-    let actor = gameState.p1.find(c => c.id === cardId);
-    actor.hasActivity = true;
-    actor.hex = 0;
-    writeLog(`📰 Reporter concludes operational turn.`);
-    gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
 }
 
 function executeTherapistReboundPrep(actorId) {
@@ -5090,7 +5130,7 @@ function executeTerroristDrain(actorId) {
     writeLog(`💥 Terrorist drained 1 hex from eligible opponent cards and died instantly.`);
     statsBump(actor, 'p1', { attackDmg: drainedCount, tactical: 1, moves: 1 });
     gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
+    finalizeActiveTurn(actor.id);
 }
 
 function runActorAbilityPad() {
@@ -5727,7 +5767,7 @@ function handleHackerSwap(actorId, ownId, enemyId) {
 
     writeLog(`💻 Your Hacker swapped ${ownSnapshot.name} with enemy ${enemySnapshot.name}! Both blusters restored to full Hex.`);
     gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
+    finalizeActiveTurn(actor.id);
 }
 
 function applyTeamPoisonTicks(squad) {
@@ -5759,7 +5799,7 @@ function commitBlankSacrifice(cardId) {
     if (actor.hex <= 0) actor.hex = 0;
     if (actor.isHeroic) actor.hex = 0;
     gameState.p1LastMoveRole = null;
-    finalizeActiveTurn();
+    finalizeActiveTurn(actor.id);
 }
 
 function processSelectedTarget(targetId) {
@@ -5837,6 +5877,17 @@ function processSelectedTarget(targetId) {
         return;
     }
     if (baseMove === 'reporter_heal_4') {
+        let patient = gameState.p1.find(c => c.id === targetId);
+        patient.hex = Math.min(patient.maxHex === Infinity ? 99 : patient.maxHex, patient.hex + 1);
+        writeLog(`📰 Reporter distributed hex to ${patient.name} (+1 Hex).`);
+        queueRecap('heal', patient);
+        
+        gameState.targetingMode.type = 'reporter_heal_5';
+        document.getElementById('targetBar').innerText = '📰 REPORTER: SELECT 5TH CARD TO HEAL';
+        renderScene();
+        return;
+    }
+    if (baseMove === 'reporter_heal_5') {
         let patient = gameState.p1.find(c => c.id === targetId);
         patient.hex = Math.min(patient.maxHex === Infinity ? 99 : patient.maxHex, patient.hex + 1);
         writeLog(`📰 Reporter distributed hex to ${patient.name} (+1 Hex).`);
@@ -6229,6 +6280,19 @@ function processSelectedTarget(targetId) {
         writeLog(`🔮 Your Witch attacks and poisons ${enemy.name}.`);
         queueRecap('poison', enemy);
     }
+    else if (baseMove === 'warden_jailbreak') {
+        ally.imprisoned = false;
+        writeLog(`⚖️ Your Warden breaks ${ally.name} free from imprisonment!`);
+        queueRecap('freed', ally);
+        let framePool = gameState.p2.filter(c => c.hex > 0 && !c.imprisoned && !c.isHeroic);
+        if (framePool.length > 0) {
+            let framed = framePool[Math.floor(Math.random() * framePool.length)];
+            applyShieldedImprison(framed);
+            writeLog(`⚖️ Warden frames enemy ${framed.name}, who is hauled off to prison in ${ally.name}'s place!`);
+        } else {
+            writeLog(`⚖️ Warden found no one left to frame.`);
+        }
+    }
 
     if (actorCard.cooldown === 'consecutive') actorCard.lastUsedRound = gameState.roundCount;
     if (actorCard.cooldown === '3moves') actorCard.lastUsedRound = gameState.roundCount;
@@ -6283,6 +6347,7 @@ function mpBuildSwappedStatePayload() {
     return {
         p1: gameState.p2, p2: gameState.p1,
         p1KnightShields: gameState.p2KnightShields, p2KnightShields: gameState.p1KnightShields,
+        p1SamuraiDoom: gameState.p2SamuraiDoom, p2SamuraiDoom: gameState.p1SamuraiDoom,
         botLastAttackRecord: gameState.playerLastAttackRecord, playerLastAttackRecord: gameState.botLastAttackRecord,
         forcedBotActorName: gameState.forcedPlayerActorName, forcedPlayerActorName: gameState.forcedBotActorName,
         p1LastMoveRole: gameState.p2LastMoveRole, p2LastMoveRole: gameState.p1LastMoveRole,
@@ -6295,7 +6360,7 @@ function mpBuildSwappedStatePayload() {
     };
 }
 
-function finalizeActiveTurn() {
+function finalizeActiveTurn(actingCardId) {
     // This move is now locked in — the state captured at the start of THIS
     // turn (before the move that just happened) becomes what Undo targets,
     // replacing whatever the previous anchor was. Promoting here (rather
@@ -6311,6 +6376,22 @@ function finalizeActiveTurn() {
             applyShieldedDamage(hijackedCard, 1);
             writeLog(`⚠️ Control Loop Feedback: ${hijackedCard.name} lost 1 hex.`);
         }
+    }
+    // Samurai's delayed doom: 'blocking' just means THIS move was the one
+    // where the enemy Samurai's lockdown kept certain cards out — nothing
+    // fires yet, just arm for the very next move. 'active' means this move
+    // IS that next move, so whichever card acted dies now that its own
+    // ability has already fully resolved above.
+    if (actingCardId && gameState.p1SamuraiDoom === 'active') {
+        gameState.p1SamuraiDoom = null;
+        let doomedCard = gameState.p1.find(c => c.id === actingCardId);
+        if (doomedCard && doomedCard.hex > 0 && !doomedCard.imprisoned) {
+            applyShieldedExecution(doomedCard);
+            writeLog(`🗡️ Enemy Samurai's bushido doom strikes down your ${doomedCard.name} the instant its ability resolves!`);
+            queueRecap('kill', doomedCard);
+        }
+    } else if (actingCardId && gameState.p1SamuraiDoom === 'blocking') {
+        gameState.p1SamuraiDoom = 'active';
     }
     stopMoveTimer();
     gameState.forcedPlayerActorName = null;
@@ -6702,7 +6783,7 @@ const ROLE_THREAT_VALUE = {
     Witch: 6, Cop: 6, Chronos: 6, Singer: 6, Lawyer: 6, Mage: 6, Warlock: 6,
     Knight: 5, Hood: 5, Robber: 5, Jinn: 5, Bartender: 5, Imam: 5,
     Wendigo: 4, Kitsune: 4, Doctor: 4,
-    Actor: 3, Therapist: 3, Princess: 3, Reporter: 3, Terrorist: 4
+    Actor: 3, Therapist: 3, Princess: 3, Reporter: 3, Terrorist: 4, Warden: 4
 };
 function roleThreatValue(name) {
     return ROLE_THREAT_VALUE[name] !== undefined ? ROLE_THREAT_VALUE[name] : 5;
@@ -6710,9 +6791,9 @@ function roleThreatValue(name) {
 
 // Roles that primarily lock down/remove a card rather than just chip Hex —
 // Ruthless/Mastermind reach for these once no kill is available.
-const DISRUPTOR_ROLES = ['Dictator', 'Lawyer', 'Jinn', 'Sorcerer', 'Witch', 'Dementor'];
+const DISRUPTOR_ROLES = ['Dictator', 'Lawyer', 'Jinn', 'Sorcerer', 'Witch', 'Dementor', 'Warden'];
 // Roles Aggressive considers "not a real attack" and avoids unless forced.
-const SUPPORT_ROLES = ['Doctor', 'Chronos', 'Imam', 'Princess', 'Therapist', 'Reporter', 'Actor', 'Bartender', 'Warlock'];
+const SUPPORT_ROLES = ['Doctor', 'Chronos', 'Imam', 'Princess', 'Therapist', 'Reporter', 'Actor', 'Bartender', 'Warlock', 'Warden'];
 
 // Total effective Hex on a side (Spy's Infinity maxHex is capped so it can't
 // skew the board-state comparison Mastermind uses to decide whether it's
@@ -6932,6 +7013,17 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     actionType = 'block';
                     writeLog(`🧞 Bot Jinn locked down ${targetPlayer.name}! It is suppressed and blocked for 3 moves.`);
                     queueRecap('lockdown', targetPlayer);
+                } else if (aiActor.name === 'Samurai') {
+                    actionType = 'samurai';
+                    let lockedDown = gameState.p1.filter(c => c.hex === 1 && !c.imprisoned);
+                    lockedDown.forEach(c => { c.blockedCounter = 1; });
+                    gameState.p1SamuraiDoom = 'blocking';
+                    if (lockedDown.length > 0) {
+                        writeLog(`🗡️ Bot Samurai's bushido strike locked ${lockedDown.map(c => c.name).join(', ')} out of your next move — and marked whichever card you play after that to fall the instant its ability resolves.`);
+                        lockedDown.forEach(c => queueRecap('lockdown', c));
+                    } else {
+                        writeLog(`🗡️ Bot Samurai found no 1-hex cards to lock down, but still marked whichever card you play next to fall the instant its ability resolves.`);
+                    }
                 } else if (aiActor.name === 'Therapist') {
                     if (gameState.playerLastAttackRecord) {
                         let record = gameState.playerLastAttackRecord;
@@ -7249,20 +7341,8 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     aiActor.hex = 0;
                     writeLog(`💥 Bot Terrorist drained 1 hex from eligible player cards and died instantly.`);
                 } else if (aiActor.name === 'Reporter') {
-                    let freedCount = 0;
-                    gameState.p2.forEach(c => {
-                        if (c.imprisoned) {
-                            c.imprisoned = false;
-                            freedCount++;
-                        }
-                    });
-                    if (freedCount > 0) {
-                        writeLog(`📰 Bot Reporter expose released ${freedCount} imprisoned cards.`);
-                        queueRecap('freed', aiActor, { name: freedCount === 1 ? '1 Card' : `${freedCount} Cards`, side: 'ENEMY SQUAD' });
-                    }
-                    
                     let injuredBots = gameState.p2.filter(c => c.hex > 0 && c.hex < c.maxHex);
-                    for (let i = 0; i < 4; i++) {
+                    for (let i = 0; i < 5; i++) {
                         if (injuredBots.length > 0) {
                             let b = injuredBots[Math.floor(Math.random() * injuredBots.length)];
                             b.hex = Math.min(b.maxHex === Infinity ? 99 : b.maxHex, b.hex + 1);
@@ -7270,6 +7350,25 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                             queueRecap('heal', b);
                             injuredBots = gameState.p2.filter(c => c.hex > 0 && c.hex < c.maxHex);
                         }
+                    }
+                    aiActor.hex = 0;
+                } else if (aiActor.name === 'Warden') {
+                    let imprisonedPool = gameState.p2.filter(c => c.imprisoned && c.name !== 'Spy');
+                    if (imprisonedPool.length > 0) {
+                        let freed = imprisonedPool[Math.floor(Math.random() * imprisonedPool.length)];
+                        freed.imprisoned = false;
+                        writeLog(`⚖️ Bot Warden breaks ${freed.name} free from imprisonment!`);
+                        queueRecap('freed', freed);
+                        let framePool = gameState.p1.filter(c => c.hex > 0 && !c.imprisoned && !c.isHeroic);
+                        if (framePool.length > 0) {
+                            let framed = framePool[Math.floor(Math.random() * framePool.length)];
+                            applyShieldedImprison(framed);
+                            writeLog(`⚖️ Bot Warden frames your ${framed.name}, who is hauled off to prison in ${freed.name}'s place!`);
+                        } else {
+                            writeLog(`⚖️ Bot Warden found no one left to frame.`);
+                        }
+                    } else {
+                        executedAction = false;
                     }
                     aiActor.hex = 0;
                 } else if (aiActor.name === 'Actor') {
@@ -7438,6 +7537,21 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
 
             if (aiActor.cooldown === 'consecutive') aiActor.lastUsedRound = gameState.roundCount;
             if (aiActor.cooldown === '3moves') aiActor.lastUsedRound = gameState.roundCount;
+
+            // Samurai's delayed doom (see finalizeActiveTurn for the player-side
+            // mirror): 'blocking' just arms for next move, 'active' means THIS
+            // move is the marked one — kill aiActor now that its ability (above)
+            // has already fully resolved.
+            if (gameState.p2SamuraiDoom === 'active') {
+                gameState.p2SamuraiDoom = null;
+                if (aiActor.hex > 0 && !aiActor.imprisoned) {
+                    applyShieldedExecution(aiActor);
+                    writeLog(`🗡️ Your Samurai's bushido doom strikes down Bot ${aiActor.name} the instant its ability resolves!`);
+                    queueRecap('kill', aiActor);
+                }
+            } else if (gameState.p2SamuraiDoom === 'blocking') {
+                gameState.p2SamuraiDoom = 'active';
+            }
         } else {
             let aiActor = aliveBots[0];
             if (aiActor.name !== 'Spy' && !aiActor.isHeroic) aiActor.hex -= 1;
@@ -7561,6 +7675,7 @@ function renderScene() {
             if (m === 'mecha_hood_share_2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
             if (m.startsWith('mage_revive_') && isDead && card.name !== 'Spy') isEligibleAlly = true;
             if (m.startsWith('warlock_release_') && card.imprisoned && card.name !== 'Spy') isEligibleAlly = true;
+            if (m === 'warden_jailbreak' && card.imprisoned && card.name !== 'Spy') isEligibleAlly = true;
             if (m === 'mecha_select_partner' && !isDead && !card.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(card.name)) isEligibleAlly = true;
             if (m === 'sorcerer_hijacked_action' && !isDead && !card.imprisoned && gameState.targetingMode.metadata.originalType === 'Doctor' && card.hex < card.maxHex) isEligibleAlly = true;
         }
@@ -7745,6 +7860,15 @@ function closeMergedActionModal() {
     document.getElementById('mergedActionModal').style.display = 'none';
 }
 
+// Shared Cancel handler for every "choose from a list" ability pad
+// (Bartender/Actor/Dementor/Sorcerer/Mecha/Wendigo-Kitsune/Hacker). None of
+// these pads spend the acting card's Hex or turn until an option inside
+// them is actually clicked, so backing out here is always a true no-op —
+// the player just gets their card-view controls back to try another move.
+function closeChoicePad(modalId) {
+    document.getElementById(modalId).style.display = 'none';
+}
+
 function buildDynamicActionPads(card, isLockedByCooldown) {
     let html = '<div class="action-panel">';
     let validTargetsExist = hasValidTargets(card, gameState.p1, gameState.p2);
@@ -7758,19 +7882,16 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
             btns.push(`<button class="btn" style="background:#00acc1;" onclick="executeTherapistReboundPrep('${card.id}')">🧘 Rebound</button>`);
         }
         if (card.name === 'Reporter') {
-            if (!card.releasedImprisoned) {
-                btns.push(`<button class="btn" style="background:#7b1fa2;" onclick="executeReporterRelease('${card.id}')">🔓 Release</button>`);
-            }
             btns.push(`<button class="btn" style="background:#0d47a1;" onclick="openTargetingOverlay('${card.id}', 'reporter_heal_1', '📰 REPORTER: SELECT 1ST CARD TO HEAL')">📰 Heal</button>`);
-            if (card.releasedImprisoned) {
-                btns.push(`<button class="btn waste-btn" onclick="commitReporterTurn('${card.id}')">Finish Turn</button>`);
-            }
         }
         if (card.name === 'Actor') {
             btns.push(`<button class="btn" style="background:#e040fb;" onclick="runActorAbilityPad()">🎭 Mimic</button>`);
         }
         if (card.name === 'Princess') {
             btns.push(`<button class="btn" style="background:#ff4081;" onclick="executePrincessSacrifice('${card.id}')">👸 Sacrifice</button>`);
+        }
+        if (card.name === 'Warden') {
+            btns.push(`<button class="btn" style="background:#1565c0;" onclick="openTargetingOverlay('${card.id}', 'warden_jailbreak', '⚖️ WARDEN: SELECT ALLY TO FREE')">⚖️ Jailbreak</button>`);
         }
         if (card.name === 'Killer') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'killer_strike', '🎯 KILLER EXECUTION')">Kill</button>`);
         if (card.name === 'Robber') {
@@ -7821,6 +7942,9 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
         }
         if (card.name === 'Kitsune') {
             btns.push(`<button class="btn" style="background:#e65100;" onclick="runKitsuneAbilityPad('${card.id}')">🦊 Transform</button>`);
+        }
+        if (card.name === 'Samurai') {
+            btns.push(`<button class="btn" style="background:#7a1f1f;" onclick="executeSamuraiStrike('${card.id}')">⚔️ Bushido</button>`);
         }
         if (card.name === 'Hacker') {
             btns.push(`<button class="btn" style="background:#37474f;" onclick="runHackerAbilityPad('${card.id}')">💻 Swap</button>`);
@@ -7928,12 +8052,13 @@ const GUIDE_DATA = {
         { name: 'Chronos', tag: 'Bloodsmith', hex: 2, desc: "Rewinds time, undoing whatever the enemy's last attack did to your team. 3-turn cooldown between uses." },
         { name: 'Warlock', tag: 'Mystic', hex: 3, desc: "Spends its own hex to break an imprisoned ally free, restoring it to that same amount of hex. Can't release Spy. Also gets Mystic Purge. Must sit out a turn after using it." },
         { name: 'Kitsune', tag: 'Entity', hex: 1, desc: "Completely untouchable until it transforms. At any time, for free, it can permanently shapeshift into an unused Bloodborne character and gain +1 max hex. Must sit out a turn after using its normal move." },
+        { name: 'Samurai', tag: 'Assassin', hex: 2, desc: "Locks every enemy card currently on exactly 1 hex out of their very next move. Then, whichever card the enemy plays the move after that dies instantly the moment its own ability finishes resolving. Must sit out a turn after using it." },
     ],
     Heroic: [
         { name: 'Actor', tag: 'Artist', hex: 1, desc: "Instantly becomes almost any other Bloodbane or Bloodborne character and uses that character's move for one turn." },
         { name: 'Therapist', tag: 'Medic', hex: 1, desc: "Undoes the enemy's last attack on your team, then immediately fires that same attack straight back at the enemy." },
         { name: 'Princess', tag: 'Artist', hex: 1, desc: "Sacrifices herself completely to instantly undo the enemy's last attack on your team." },
-        { name: 'Reporter', tag: 'Law & Order', hex: 1, desc: "Frees every one of your imprisoned characters, then can heal up to 4 different allies for 1 hex each before ending its turn." },
+        { name: 'Reporter', tag: 'Law & Order', hex: 1, desc: "Can heal up to 5 different allies for 1 hex each before ending its turn." },
         { name: 'Terrorist', tag: 'Criminal', hex: 1, desc: "Only usable once 2 of your characters have already died. Drains 1 hex from every enemy with more than 1 hex, then sacrifices itself." },
     ]
 };
