@@ -1550,6 +1550,7 @@ const CARD_POOL = [
     { name: 'Chronos', tag: 'Bloodsmith', maxHex: 2, tier: 3, cooldown: '3moves', category: 'Bloodborne' },
     { name: 'Hacker', tag: 'Criminal', maxHex: 2, tier: 3, cooldown: '3moves', category: 'Bloodborne' },
     { name: 'Warlock', tag: 'Mystic', maxHex: 3, tier: 3, cooldown: 'consecutive', category: 'Bloodborne' },
+    { name: 'Kitsune', tag: 'Entity', maxHex: 1, tier: 3, cooldown: 'consecutive', category: 'Bloodborne' },
 
     // Heroics/SacredSouls
     { name: 'Actor', tag: 'Artist', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
@@ -1561,9 +1562,9 @@ const CARD_POOL = [
 
 // Roles that 'Dementor' is forbidden from reanimating: the entire
 // Heroic/SacredSouls category plus Wendigo, Sorcerer, Chronos, Mecha, and Bartender.
-const DEMENTOR_FORBIDDEN_ROLES = ['Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist', 'Wendigo', 'Sorcerer', 'Chronos', 'Mecha', 'Bartender'];
+const DEMENTOR_FORBIDDEN_ROLES = ['Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist', 'Wendigo', 'Sorcerer', 'Chronos', 'Mecha', 'Bartender', 'Kitsune'];
 // Cards that 'Sorcerer' is forbidden from hijacking/controlling, beyond Heroics.
-const SORCERER_FORBIDDEN_ROLES = ['Wendigo', 'Dementor', 'Chronos', 'Bartender', 'Mecha'];
+const SORCERER_FORBIDDEN_ROLES = ['Wendigo', 'Dementor', 'Chronos', 'Bartender', 'Mecha', 'Kitsune'];
 
 // The set of roles whose moves Bartender is able to copy (the same set
 // Actor/Dementor are able to mimic). If the opponent's last move wasn't
@@ -1578,11 +1579,12 @@ const BARTENDER_MIMICABLE_ROLES = ['Killer', 'Robber', 'Doctor', 'Dictator', 'Co
 // an Actor mimicking Killer, or a Sorcerer hijacking a Doctor). This is
 // checked against the physical card that actually acted, not the role its
 // move resolved into.
-const BARTENDER_COPY_EXCLUDED_ACTORS = ['Dementor', 'Sorcerer', 'Chronos', 'Wendigo', 'Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist'];
+const BARTENDER_COPY_EXCLUDED_ACTORS = ['Dementor', 'Sorcerer', 'Chronos', 'Wendigo', 'Kitsune', 'Actor', 'Therapist', 'Princess', 'Reporter', 'Terrorist'];
 function isBartenderCopyExcludedActor(card) {
     if (!card) return false;
     if (card.isHeroic || card.category === 'Heroic' || card.category === 'SacredSouls') return true;
     if (card.wasWendigo) return true;
+    if (card.wasKitsune) return true;
     return BARTENDER_COPY_EXCLUDED_ACTORS.includes(card.name);
 }
 
@@ -1609,6 +1611,7 @@ let gameState = {
     forcedPlayerActorName: null,
     botExecutionSequenceOverride: null,
     unusedBloodbanes: [],
+    unusedBloodbornes: [],
     lastHackerSwapCategory: null,
     // Set when Sorcerer hijacks a role whose real ability doesn't fit the
     // normal "pick one enemy target" flow (Mage/Mecha/Hacker/Imam), so the
@@ -2274,7 +2277,8 @@ const TITLE_DEFS = [
     { id: 'brisingamen', name: 'Brisingamen', category: 'character', character: 'Doctor', goal: 10 },
     { id: 'dyrnwyn', name: 'Dyrnwyn', category: 'character', character: 'Bartender', goal: 10 },
     { id: 'labrys', name: 'Labrys', category: 'character', character: 'Jinn', goal: 10 },
-    { id: 'gaebolg', name: 'Gáe Bolg', category: 'character', character: 'Warlock', goal: 10 }
+    { id: 'gaebolg', name: 'Gáe Bolg', category: 'character', character: 'Warlock', goal: 10 },
+    { id: 'kogarasumaru', name: 'Kogarasumaru', category: 'character', character: 'Kitsune', goal: 10 }
 ];
 
 const TITLE_BY_ID_MAP = {};
@@ -2903,9 +2907,13 @@ function isCardShielded(card) {
 }
 
 // Deals `amount` Hex damage to a target. If that damage would kill a
-// shielded card, it instead bottoms out at 1 Hex.
+// shielded card, it instead bottoms out at 1 Hex. Wendigo is fully immune
+// until it shapeshifts (see isHarmMoveWasted/isImprisonMoveWasted below) —
+// this guard is enforced here directly too, so no code path (rebounds,
+// hijacks, mimics, bot logic, etc.) can ever land damage on it early.
 function applyShieldedDamage(target, amount) {
     if (!target) return;
+    if (target.name === 'Wendigo' || target.name === 'Kitsune') return;
     let result = target.hex - amount;
     if (result <= 0 && target.hex > 0 && isCardShielded(target)) {
         target.hex = 1;
@@ -2920,9 +2928,12 @@ function applyShieldedDamage(target, amount) {
 
 // Direct-execution effects (Killer, Robber Execute, Ninja finisher, Mecha
 // fusion instakills, etc) that would otherwise set Hex straight to 0
-// regardless of current total. Respects K-Shield the same way.
+// regardless of current total. Respects K-Shield the same way. Wendigo is
+// immune until it shapeshifts, guarded directly here for the same reason
+// as applyShieldedDamage above.
 function applyShieldedExecution(target) {
     if (!target) return;
+    if (target.name === 'Wendigo' || target.name === 'Kitsune') return;
     if (target.hex > 0 && isCardShielded(target)) {
         target.hex = 1;
         writeLog(`🛡️ ${target.name}'s K-Shield absorbed a lethal execution!`);
@@ -2934,9 +2945,12 @@ function applyShieldedExecution(target) {
     }
 }
 
-// Attempts to imprison a target; fully blocked by K-Shield.
+// Attempts to imprison a target; fully blocked by K-Shield. Wendigo is also
+// fully immune to imprisonment until it shapeshifts, guarded directly here
+// for the same reason as applyShieldedDamage above.
 function applyShieldedImprison(target) {
     if (!target) return;
+    if (target.name === 'Wendigo' || target.name === 'Kitsune') return;
     if (isCardShielded(target)) {
         writeLog(`🛡️ ${target.name}'s K-Shield prevented imprisonment!`);
         queueRecap('blocked', target);
@@ -2965,11 +2979,13 @@ function applyShieldedImprison(target) {
 // to keep the bot from ever picking the same wasted target, so the two
 // sides are held to identical rules.
 function isImprisonMoveWasted(target) {
+    if (!target) return false;
+    if (target.name === 'Wendigo' || target.name === 'Kitsune') return true;
     return isCardShielded(target);
 }
 function isHarmMoveWasted(target) {
     if (!target) return false;
-    if (target.name === 'Wendigo') return true;
+    if (target.name === 'Wendigo' || target.name === 'Kitsune') return true;
     return isCardShielded(target) && target.hex === 1;
 }
 // Witch's poison is a real, independent side effect even when the
@@ -3782,6 +3798,7 @@ function buildRandomBalancedSquads() {
     let playerSquad = [], botSquad = [];
     let finalPTierSum = 0, finalBTierSum = 0;
     let unusedBloodbanes = [];
+    let unusedBloodbornes = [];
 
     const bloodbanes = CARD_POOL.filter(c => c.category === 'Bloodbane');
     const bloodbornes = CARD_POOL.filter(c => c.category === 'Bloodborne');
@@ -3807,7 +3824,8 @@ function buildRandomBalancedSquads() {
 
         let pRaw = [...pBanes, ...pBornes, ...pHeroics];
         let bRaw = [...bBanes, ...bBornes, ...bHeroics];
-        unusedBloodbanes = shuffledBanes.slice(10, 12);
+        unusedBloodbanes = shuffledBanes.slice(10);
+        unusedBloodbornes = shuffledBornes.slice(8);
 
         pRaw.forEach((pCard, idx) => {
             playerSquad.push({...pCard, id: `p1_${idx}`, hex: pCard.maxHex, imprisoned: false, hasActivity: false, hasKilled: false, poisoned: false, mechaCooldown: 0, lastUsedRound: 0, blockedCounter: 0, bartenderState: 'random', releasedImprisoned: false});
@@ -3825,7 +3843,7 @@ function buildRandomBalancedSquads() {
             finalBTierSum = bSum;
         }
     }
-    return { p1Squad: playerSquad, p2Squad: botSquad, p1Tier: finalPTierSum, p2Tier: finalBTierSum, unusedBloodbanes };
+    return { p1Squad: playerSquad, p2Squad: botSquad, p1Tier: finalPTierSum, p2Tier: finalBTierSum, unusedBloodbanes, unusedBloodbornes };
 }
 
 // Shared tail-end of match setup: takes two fully-built squads (from the solo
@@ -3912,6 +3930,7 @@ function initializeMatch() {
     mpClearSession();
     let built = buildRandomBalancedSquads();
     gameState.unusedBloodbanes = built.unusedBloodbanes;
+    gameState.unusedBloodbornes = built.unusedBloodbornes;
     startBattleWithSquads(built.p1Squad, built.p2Squad, built.p1Tier, built.p2Tier, { vsBot: true });
 }
 
@@ -4459,7 +4478,8 @@ function mpRunRandomizedSquadFlow() {
         mp.sendMsg({ type: 'squadsReady', payload: mpSanitizeForWire({
             p1Squad: built.p2Squad, p2Squad: built.p1Squad,
             p1Tier: built.p2Tier, p2Tier: built.p1Tier,
-            unusedBloodbanes: built.unusedBloodbanes
+            unusedBloodbanes: built.unusedBloodbanes,
+            unusedBloodbornes: built.unusedBloodbornes
         })});
         mpStartBattleFromPayload(built);
     } else {
@@ -4479,6 +4499,7 @@ function mpRunRandomizedSquadFlow() {
 
 function mpStartBattleFromPayload(built) {
     gameState.unusedBloodbanes = built.unusedBloodbanes || [];
+    gameState.unusedBloodbornes = built.unusedBloodbornes || [];
     document.getElementById('draftView').style.display = 'none';
     mp.phase = 'battle';
     mp.draft = null;
@@ -4599,6 +4620,7 @@ function mpApplyDraftPick(cardName, side) {
         const sideATier = sideASquad.reduce((s, c) => c.maxHex === Infinity ? s + 3 : s + c.tier, 0);
         const sideBTier = sideBSquad.reduce((s, c) => c.maxHex === Infinity ? s + 3 : s + c.tier, 0);
         gameState.unusedBloodbanes = d.pool.filter(c => c.category === 'Bloodbane').map(c => ({...c}));
+        gameState.unusedBloodbornes = d.pool.filter(c => c.category === 'Bloodborne').map(c => ({...c}));
         // Both devices run this same draft-completion code independently
         // (each tracked the picks via the 'draftPick' messages), so each
         // just needs to mirror the absolute side-A/side-B squads onto its
@@ -4610,7 +4632,8 @@ function mpApplyDraftPick(cardName, side) {
             p2Squad: myFirst ? sideBSquad : sideASquad,
             p1Tier: myFirst ? sideATier : sideBTier,
             p2Tier: myFirst ? sideBTier : sideATier,
-            unusedBloodbanes: gameState.unusedBloodbanes
+            unusedBloodbanes: gameState.unusedBloodbanes,
+            unusedBloodbornes: gameState.unusedBloodbornes
         });
     } else {
         mpRenderDraft();
@@ -4832,7 +4855,7 @@ function hasValidTargets(card, allies, enemies) {
     } 
 
     if (card.name === 'Mage') {
-        let hasDeadAllies = allies.some(c => c.hex <= 0);
+        let hasDeadAllies = allies.some(c => c.hex <= 0 && c.name !== 'Spy');
         let hasEnemyEntities = enemies.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity');
         return hasDeadAllies || hasEnemyEntities;
     }
@@ -4877,6 +4900,7 @@ function hasValidTargets(card, allies, enemies) {
     if (card.name === 'Bartender') return true;
 
     if (card.name === 'Wendigo') return gameState.unusedBloodbanes.length > 0;
+    if (card.name === 'Kitsune') return gameState.unusedBloodbornes.length > 0;
     if (card.name === 'Hacker') return getHackerEligiblePairs(allies, enemies, card.id).length > 0;
 
     return harmfulEnemies.length > 0;
@@ -5575,6 +5599,54 @@ function handleWendigoTransform(actorId, templateIdx) {
     renderScene();
 }
 
+function runKitsuneAbilityPad(actorId) {
+    let container = document.getElementById('skinwalkerOptionsContainer');
+    container.innerHTML = '';
+
+    if (gameState.unusedBloodbornes.length === 0) {
+        writeLog("🦊 Kitsune found no remaining Bloodborne forms left to become.");
+        return;
+    }
+
+    gameState.unusedBloodbornes.forEach((template, idx) => {
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = '#444';
+        b.innerText = template.name.toUpperCase();
+        b.onclick = () => handleKitsuneTransform(actorId, idx);
+        container.appendChild(b);
+    });
+    document.getElementById('skinwalkerChoiceModal').style.display = 'flex';
+}
+
+function handleKitsuneTransform(actorId, templateIdx) {
+    document.getElementById('skinwalkerChoiceModal').style.display = 'none';
+    let actor = gameState.p1.find(c => c.id === actorId);
+    let template = gameState.unusedBloodbornes[templateIdx];
+    if (!actor || !template) return;
+
+    // Consumes the chosen remaining Bloodborne form; the others stay
+    // available in case a second Kitsune ever needs one.
+    gameState.unusedBloodbornes = gameState.unusedBloodbornes.filter((t, i) => i !== templateIdx);
+
+    actor.name = template.name;
+    actor.tag = template.tag;
+    actor.tier = template.tier;
+    actor.cooldown = template.cooldown;
+    actor.category = 'Bloodborne';
+    actor.maxHex = template.maxHex === Infinity ? Infinity : template.maxHex + 1;
+    actor.hex = actor.maxHex === Infinity ? Infinity : template.maxHex + 1;
+    actor.wasKitsune = true;
+    actor.lastUsedRound = 0;
+
+    writeLog(`🦊 Your Kitsune permanently shifted into ${template.name}, gaining +1 extra Hex!`);
+    statsBump(actor, 'p1', { tactical: 1 });
+    // Free action: doesn't cost the turn's move, so the turn continues
+    // and the newly-transformed card can still act this same turn.
+    renderScene();
+}
+
 function runHackerAbilityPad(actorId) {
     let container = document.getElementById('hackerOwnOptionsContainer');
     container.innerHTML = '';
@@ -6218,6 +6290,7 @@ function mpBuildSwappedStatePayload() {
         roundCount: gameState.roundCount,
         isGameOver: gameState.isGameOver,
         unusedBloodbanes: gameState.unusedBloodbanes,
+        unusedBloodbornes: gameState.unusedBloodbornes,
         lastHackerSwapCategory: gameState.lastHackerSwapCategory
     };
 }
@@ -6628,7 +6701,7 @@ const ROLE_THREAT_VALUE = {
     Spy: 7, Dementor: 7, Hacker: 7, Wraith: 7,
     Witch: 6, Cop: 6, Chronos: 6, Singer: 6, Lawyer: 6, Mage: 6, Warlock: 6,
     Knight: 5, Hood: 5, Robber: 5, Jinn: 5, Bartender: 5, Imam: 5,
-    Wendigo: 4, Doctor: 4,
+    Wendigo: 4, Kitsune: 4, Doctor: 4,
     Actor: 3, Therapist: 3, Princess: 3, Reporter: 3, Terrorist: 4
 };
 function roleThreatValue(name) {
@@ -7065,9 +7138,9 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         writeLog(`⚔️ Bot Knight strikes enemy ${targetPlayer.name}.`);
                     }
                 } else if (aiActor.name === 'Mage') {
-                    let deadBots = gameState.p2.filter(c => c.hex <= 0);
+                    let deadBots = gameState.p2.filter(c => c.hex <= 0 && c.name !== 'Spy');
                     if (deadBots.length > 0) {
-                        let cost = deadBots[0].name === 'Spy' ? 2 : 1;
+                        let cost = 1;
                         if (aiActor.hex >= cost) {
                             aiActor.hex -= cost;
                             deadBots[0].hex = cost;
@@ -7271,6 +7344,46 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     } else {
                         writeLog(`🐺 Bot Wendigo found no remaining Bloodbane forms and held its ground.`);
                     }
+                } else if (aiActor.name === 'Kitsune') {
+                    if (gameState.unusedBloodbornes.length > 0) {
+                        let idx = Math.floor(Math.random() * gameState.unusedBloodbornes.length);
+                        let template = gameState.unusedBloodbornes[idx];
+                        gameState.unusedBloodbornes = gameState.unusedBloodbornes.filter((t, i) => i !== idx);
+                        aiActor.name = template.name;
+                        aiActor.tag = template.tag;
+                        aiActor.tier = template.tier;
+                        aiActor.cooldown = template.cooldown;
+                        aiActor.category = 'Bloodborne';
+                        aiActor.maxHex = template.maxHex === Infinity ? Infinity : template.maxHex + 1;
+                        aiActor.hex = aiActor.maxHex;
+                        aiActor.wasKitsune = true;
+                        // Free action: doesn't cost the turn's move (matches the
+                        // player's handleKitsuneTransform), so the bot's turn
+                        // is NOT ended here — it immediately gets to act again,
+                        // either with the newly-transformed card or any other
+                        // usable card, instead of its whole turn being skipped.
+                        aiActor.lastUsedRound = 0;
+                        writeLog(`🦊 Bot Kitsune permanently shifted into ${template.name}, gaining +1 extra Hex! It acts again immediately.`);
+                        statsBump(aiActor, 'p2', { tactical: 1 });
+                        renderScene();
+                        if (freeActionDepth < 8) {
+                            processBotTurnRoutine(true, freeActionDepth + 1);
+                        } else {
+                            // Safety valve against a runaway chain — end the turn normally.
+                            gameState.roundCount++;
+                            gameState.currentTurn = 1;
+                            stopMoveTimer();
+                            renderScene();
+                            if (!gameState.isGameOver) {
+                                startMoveTimer(1);
+                                blVibrate(40); // bot's move landed
+                            }
+                        }
+                        statsRecordFromSnapshot(_statsSnapshot);
+                        return;
+                    } else {
+                        writeLog(`🦊 Bot Kitsune found no remaining Bloodborne forms and held its ground.`);
+                    }
                 } else if (aiActor.name === 'Hacker') {
                     let pairs = getHackerEligiblePairs(gameState.p2, gameState.p1, aiActor.id);
                     if (pairs.length > 0) {
@@ -7376,7 +7489,7 @@ function cardTitleClass(name) {
 function renderScene() {
     // Wendigo can't be killed before it changes form - its 1 Hex is untouchable.
     [...gameState.p1, ...gameState.p2].forEach(c => {
-        if (c.name === 'Wendigo' && c.hex < 1) c.hex = 1;
+        if ((c.name === 'Wendigo' || c.name === 'Kitsune') && c.hex < 1) c.hex = 1;
     });
     if (gameState.forcedPlayerActorName) {
         let forcedCard = gameState.p1.find(c => c.name === gameState.forcedPlayerActorName);
@@ -7446,7 +7559,7 @@ function renderScene() {
             if (m.startsWith('reporter_heal_') && !isDead && !card.imprisoned) isEligibleAlly = true;
             if (m === 'hood_step2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
             if (m === 'mecha_hood_share_2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
-            if (m.startsWith('mage_revive_') && isDead) isEligibleAlly = true;
+            if (m.startsWith('mage_revive_') && isDead && card.name !== 'Spy') isEligibleAlly = true;
             if (m.startsWith('warlock_release_') && card.imprisoned && card.name !== 'Spy') isEligibleAlly = true;
             if (m === 'mecha_select_partner' && !isDead && !card.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(card.name)) isEligibleAlly = true;
             if (m === 'sorcerer_hijacked_action' && !isDead && !card.imprisoned && gameState.targetingMode.metadata.originalType === 'Doctor' && card.hex < card.maxHex) isEligibleAlly = true;
@@ -7529,9 +7642,8 @@ function renderScene() {
                         // guaranteed no-op target is never offered as an
                         // option in the first place, and imprison moves are
                         // gated by isImprisonMoveWasted (K-Shield always
-                        // fully blocks imprisonment). Wendigo can still be
-                        // legitimately imprisoned, so it's only excluded from
-                        // the damage/execution moves, not from those.
+                        // fully blocks imprisonment, and a not-yet-transformed
+                        // Wendigo is fully immune to imprisonment too).
                         if (m === 'killer_strike' && !isHarmMoveWasted(card)) isEligibleEnemy = true; 
                         if (m === 'dictator_imprison' && !isImprisonMoveWasted(card)) isEligibleEnemy = true; 
                         if (m === 'jinn_block') isEligibleEnemy = true;
@@ -7707,6 +7819,9 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
         if (card.name === 'Wendigo') {
             btns.push(`<button class="btn" style="background:#8d6e63;" onclick="runWendigoAbilityPad('${card.id}')">🐺 Transform</button>`);
         }
+        if (card.name === 'Kitsune') {
+            btns.push(`<button class="btn" style="background:#e65100;" onclick="runKitsuneAbilityPad('${card.id}')">🦊 Transform</button>`);
+        }
         if (card.name === 'Hacker') {
             btns.push(`<button class="btn" style="background:#37474f;" onclick="runHackerAbilityPad('${card.id}')">💻 Swap</button>`);
         }
@@ -7806,12 +7921,13 @@ const GUIDE_DATA = {
         { name: 'Knight', tag: 'Law & Order', hex: 2, desc: "First hex: raises a shield that stops your whole team from being killed or imprisoned for the enemy's next 2 turns. Last hex: strikes an enemy for 1 damage, or instantly finishes Spy." },
         { name: 'Hacker', tag: 'Criminal', hex: 2, desc: "Trades one of your characters with one of the enemy's. Swaps must alternate between Bloodbane-for-Bloodbane and Bloodborne-for-Bloodborne. Both cards return to full hex after the trade. 3-turn cooldown between uses." },
         { name: 'Imam', tag: 'Mystic', hex: 2, desc: "Reverses the enemy's last kill or imprisonment against your team. Also gets Mystic Purge. Must sit out a turn after using it." },
-        { name: 'Mage', tag: 'Mystic', hex: 3, desc: "Spends its own hex to revive a dead ally with that same amount of hex (reviving Spy always costs 2). Also gets Mystic Purge. Must sit out a turn after using it." },
+        { name: 'Mage', tag: 'Mystic', hex: 3, desc: "Spends its own hex to revive a dead ally (other than Spy, who can't be revived) with that same amount of hex. Also gets Mystic Purge. Must sit out a turn after using it." },
         { name: 'Doctor', tag: 'Medic', hex: 3, desc: "Heals an ally for 1 hex. Can also cure poison on any teammate completely for free, without spending its move." },
         { name: 'Bartender', tag: 'Criminal', hex: 2, desc: "Copies whatever move the enemy used on their last turn. Must sit out a turn after using it." },
         { name: 'Jinn', tag: 'Entity', hex: 2, desc: "Locks down one enemy, blocking it from acting for its next 3 turns. Must sit out a turn after using it." },
         { name: 'Chronos', tag: 'Bloodsmith', hex: 2, desc: "Rewinds time, undoing whatever the enemy's last attack did to your team. 3-turn cooldown between uses." },
         { name: 'Warlock', tag: 'Mystic', hex: 3, desc: "Spends its own hex to break an imprisoned ally free, restoring it to that same amount of hex. Can't release Spy. Also gets Mystic Purge. Must sit out a turn after using it." },
+        { name: 'Kitsune', tag: 'Entity', hex: 1, desc: "Completely untouchable until it transforms. At any time, for free, it can permanently shapeshift into an unused Bloodborne character and gain +1 max hex. Must sit out a turn after using its normal move." },
     ],
     Heroic: [
         { name: 'Actor', tag: 'Artist', hex: 1, desc: "Instantly becomes almost any other Bloodbane or Bloodborne character and uses that character's move for one turn." },
