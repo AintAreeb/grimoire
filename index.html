@@ -4973,7 +4973,7 @@ function executeSamuraiStrike(actorId) {
     // enemy plays the move AFTER that dies instantly the moment its own
     // ability finishes resolving. See finalizeActiveTurn() for the kill.
     let lockedDown = gameState.p2.filter(c => c.hex === 1 && !c.imprisoned);
-    lockedDown.forEach(c => { c.blockedCounter = 1; });
+    lockedDown.forEach(c => { c.blockedCounter = 2; });
     gameState.p2SamuraiDoom = 'blocking';
 
     if (lockedDown.length > 0) {
@@ -7016,7 +7016,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                 } else if (aiActor.name === 'Samurai') {
                     actionType = 'samurai';
                     let lockedDown = gameState.p1.filter(c => c.hex === 1 && !c.imprisoned);
-                    lockedDown.forEach(c => { c.blockedCounter = 1; });
+                    lockedDown.forEach(c => { c.blockedCounter = 2; });
                     gameState.p1SamuraiDoom = 'blocking';
                     if (lockedDown.length > 0) {
                         writeLog(`🗡️ Bot Samurai's bushido strike locked ${lockedDown.map(c => c.name).join(', ')} out of your next move — and marked whichever card you play after that to fall the instant its ability resolves.`);
