@@ -616,6 +616,7 @@
         .guide-card-desc { font-size: 11px; color: #c7c9cf; line-height: 1.45; }
         /* Match Summary modal */
         .msum-modal { max-width: 360px; }
+        .rank-modal { max-width: 360px; }
         .msum-result-banner {
             text-align: center; font-size: 16px; font-weight: 700; padding: 12px;
             border-radius: 8px; margin-bottom: 12px; letter-spacing: 0.03em;
@@ -1178,8 +1179,10 @@
             <div id="accountLoggedIn" style="display:none; position:relative;">
                 <span id="accountWelcome"></span>
                 <span id="accountFavBadge" class="profile-fav-badge profile-fav-empty" style="display:none; margin-left:6px;"></span>
+                <span id="accountRankBadge" class="profile-fav-badge" style="display:none; margin-left:6px; background:transparent;"></span>
                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
                     <button class="account-btn account-btn-alt" onclick="openProfileModal()">👤 Profile</button>
+                    <button class="account-btn account-btn-alt" onclick="openRankingModal()">🏆 Ranking</button>
                     <button class="account-btn account-btn-alt" style="position:relative;" onclick="openFriendsModal()">
                         👥 Friends
                         <span id="friendsReqBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3333; color:#fff; border-radius:50%; width:16px; height:16px; font-size:9px; line-height:16px; text-align:center; font-weight:700;"></span>
@@ -1311,6 +1314,19 @@
             <div class="recap-name" id="recapName">Card</div>
             <div class="recap-side" id="recapSide"></div>
         </div>
+    </div>
+
+    <div id="rankingModal" class="guide-modal rank-modal">
+        <h3>🏆 WORLD RANKING</h3>
+        <div class="guide-tabs">
+            <button id="rankTabMineBtn" class="guide-tab-btn guide-tab-active" onclick="switchRankingTab('mine')">My Rank</button>
+            <button id="rankTabBoardBtn" class="guide-tab-btn" onclick="switchRankingTab('board')">Top 100</button>
+        </div>
+        <div class="guide-body">
+            <div id="rankMineView"></div>
+            <div id="rankBoardView" style="display:none;"></div>
+        </div>
+        <button class="guide-close-btn" onclick="closeRankingModal()">Close</button>
     </div>
 
     <div id="matchSummaryModal" class="guide-modal msum-modal">
@@ -1484,7 +1500,7 @@ const CARD_POOL = [
     { name: 'Sorcerer', tag: 'Mystic', maxHex: 2, tier: 3, cooldown: 'consecutive', category: 'Bloodbane' },
     { name: 'Singer', tag: 'Artist', maxHex: 2, tier: 2, cooldown: 'none', category: 'Bloodbane' },
     { name: 'Witch', tag: 'Mystic', maxHex: 2, tier: 2, cooldown: 'none', category: 'Bloodbane' },
-    { name: 'Wendigo', tag: 'Mystic', maxHex: 1, tier: 3, cooldown: 'consecutive', category: 'Bloodbane' },
+    { name: 'Wendigo', tag: 'Entity', maxHex: 1, tier: 3, cooldown: 'consecutive', category: 'Bloodbane' },
 
     // Bloodbornes
     { name: 'Mecha', tag: 'Bloodsmith', maxHex: 2, tier: 3, cooldown: 'none', category: 'Bloodborne' },
@@ -1696,7 +1712,7 @@ let matchRecorded = false; // guards against recording the same multiplayer matc
 
 function statsEnsureEntry(card, side) {
     if (!matchStats[card.id]) {
-        matchStats[card.id] = { id: card.id, name: card.name, side: side, attackDmg: 0, kills: 0, healAmt: 0, revives: 0, tactical: 0, moves: 0 };
+        matchStats[card.id] = { id: card.id, name: card.name, side: side, attackDmg: 0, kills: 0, healAmt: 0, revives: 0, tactical: 0, imprisons: 0, moves: 0 };
     }
     return matchStats[card.id];
 }
@@ -1741,7 +1757,7 @@ function statsRecordFromSnapshot(before) {
                 stat.attackDmg += dmg;
                 if (c.hex <= 0 && b.hex > 0) stat.kills++;
             }
-            if (!b.imprisoned && c.imprisoned) stat.tactical++;
+            if (!b.imprisoned && c.imprisoned) { stat.tactical++; stat.imprisons++; }
             if (c.blockedCounter > (b.blockedCounter || 0)) stat.tactical++;
             if (!b.poisoned && c.poisoned) stat.tactical++;
         }
@@ -1831,6 +1847,7 @@ function buildMatchSummaryHTML() {
     });
 
     let html = `<div class="msum-result-banner ${resultClass}">${resultLabel}</div>
+    <div id="msumRankingSection"></div>
     <div class="msum-rating-row">
         <div class="msum-rating-label">Your Overall Match Rating</div>
         <div class="msum-rating-value">${overall}<span class="msum-rating-max">/100</span></div>
@@ -1857,6 +1874,7 @@ function showMatchSummaryModal() {
     document.getElementById('matchSummaryBody').innerHTML = buildMatchSummaryHTML();
     document.getElementById('matchSummaryModal').style.display = 'flex';
     bl_pushState({ modal: 'summary' });
+    if (lastRankingDelta !== null) renderMatchSummaryRankingSection(lastRankingDelta);
 }
 function closeMatchSummaryModal() {
     document.getElementById('matchSummaryModal').style.display = 'none';
@@ -1885,11 +1903,268 @@ function recordMultiplayerMatchIfNeeded() {
         p_heal_score: sc.healScore,
         p_tactical_score: sc.tacticalScore
     });
+    recordRankingResultIfNeeded(result, mine, sum);
+}
+
+// ============================================================================
+// WORLD RANKING
+// A global, competitive, adaptive rating ladder layered on top of the same
+// Supabase project (see eldritch_ranking_setup.sql for the one-time,
+// additive database setup — it only creates new tables/functions and never
+// touches anything the account/profile/friends systems already rely on).
+// Only real multiplayer matches count, mirroring recordMultiplayerMatchIfNeeded.
+//
+// Scoring: every match earns Ritual Points (RP) — a flat win bonus, plus
+// per-kill / per-revive / per-imprison / per-surviving-card / per-remaining-hex
+// points, plus the existing 0-100 overall match rating, all summed together.
+// That sum is then scaled by an adaptive multiplier based on the player's
+// CURRENT tier: climbing the ladder shrinks how much a win is worth and
+// grows how much a loss costs, so the top of the ladder stays competitive
+// instead of being a one-way climb.
+// ============================================================================
+const RANK_PTS = {
+    WIN: 100,
+    KILL: 10,
+    REVIVE: 5,
+    IMPRISON: 10,
+    ALIVE_CARD: 5,
+    REMAINING_HEX: 1,
+    LOSS_BASE: 45   // flat penalty on a loss before adaptive scaling & performance softening
+};
+
+// Seven fancy, lore-flavored tiers themed around the game's Bloodbane/
+// Bloodborne/mystic-entity mythos, lowest to highest.
+const RANK_TIERS = [
+    { name: 'Obsidian',     icon: '🖤', min: 0,    color: '#4a4a52' },  // volcanic glass, black
+    { name: 'Larimar',      icon: '🌊', min: 500,  color: '#5ec8d8' },  // Caribbean blue-green
+    { name: 'Alexandrite',  icon: '🔮', min: 1200, color: '#7a4fbf' },  // colour-changing green/purple
+    { name: 'Tanzanite',    icon: '💠', min: 2100, color: '#4d5ed1' },  // deep blue-violet
+    { name: 'Painite',      icon: '🔶', min: 3200, color: '#a0522d' },  // rare brownish-red
+    { name: 'Taaffeite',    icon: '✨', min: 4500, color: '#c9a0dc' },  // pale mauve, ultra-rare
+    { name: 'Kyawthuite',   icon: '👑', min: 6000, color: '#ff7a33' }   // rarest gem on Earth, apex world-tier
+];
+
+function getTierForPoints(points) {
+    let idx = 0;
+    for (let i = 0; i < RANK_TIERS.length; i++) {
+        if (points >= RANK_TIERS[i].min) idx = i;
+    }
+    let tier = RANK_TIERS[idx];
+    let next = RANK_TIERS[idx + 1] || null;
+    return { index: idx, name: tier.name, icon: tier.icon, color: tier.color, min: tier.min, nextMin: next ? next.min : null };
+}
+
+// Higher current tier → smaller win multiplier (gains shrink as you climb)
+// and larger loss multiplier (losses sting more as you climb). tierIndex
+// runs 0-6 across the 7 tiers above.
+function rankAdaptiveMultipliers(tierIndex) {
+    let winMult = Math.max(0.45, 1.4 - tierIndex * 0.15);
+    let lossMult = Math.min(1.7, 0.6 + tierIndex * 0.18);
+    return { winMult, lossMult };
+}
+
+// blRanking caches the logged-in player's own standing so the UI (badge,
+// modal, adaptive multiplier for the NEXT match) doesn't need a round trip
+// every time it's read. Refreshed on login and after every recorded match.
+let blRanking = null; // { points, wins, losses, draws, worldRank } | null
+let lastRankingDelta = null; // RP delta from the most recently recorded match, if any
+
+async function blRefreshMyRanking() {
+    if (!blAccount) { blRanking = null; return; }
+    let result = await blCallAccountRpc('get_my_ranking', { p_username: blAccount.username });
+    if (result && result.ok) {
+        blRanking = {
+            points: result.ranking_points || 0,
+            wins: result.wins || 0,
+            losses: result.losses || 0,
+            draws: result.draws || 0,
+            worldRank: result.world_rank || null
+        };
+    } else {
+        blRanking = { points: 0, wins: 0, losses: 0, draws: 0, worldRank: null };
+    }
+    blRenderRankBadge();
+}
+
+// Computes the adaptive Ritual Point delta for the just-finished match and
+// submits it. `mine` / `sum` are the same per-card stat helpers already
+// built in recordMultiplayerMatchIfNeeded, so this stays in lockstep with
+// whatever the match summary screen shows.
+async function recordRankingResultIfNeeded(result, mine, sum) {
+    if (!blAccount) return;
+    let aliveCards = gameState.p1.filter(c => c.hex > 0 && !c.imprisoned).length;
+    let remainingHex = gameState.p1.reduce((a, c) => a + Math.max(0, c.hex === Infinity ? 0 : c.hex), 0);
+    let overallRating = statsComputeOverallRating();
+    let performance = sum('kills') * RANK_PTS.KILL
+        + sum('revives') * RANK_PTS.REVIVE
+        + sum('imprisons') * RANK_PTS.IMPRISON
+        + aliveCards * RANK_PTS.ALIVE_CARD
+        + remainingHex * RANK_PTS.REMAINING_HEX
+        + overallRating;
+
+    let currentTierIndex = blRanking ? getTierForPoints(blRanking.points).index : 0;
+    let { winMult, lossMult } = rankAdaptiveMultipliers(currentTierIndex);
+
+    let delta;
+    if (result === 'win') {
+        delta = Math.round((RANK_PTS.WIN + performance) * winMult);
+    } else if (result === 'draw') {
+        delta = Math.round(performance * 0.5 * winMult);
+    } else {
+        // A strong showing in a loss softens the penalty; a total wipeout
+        // takes the full hit. Never lets performance flip a loss positive.
+        let softened = Math.max(15, RANK_PTS.LOSS_BASE - performance * 0.15);
+        delta = -Math.round(softened * lossMult);
+    }
+
+    let rpcResult = await blCallAccountRpc('record_ranking_result', {
+        p_username: blAccount.username,
+        p_result: result,
+        p_points_delta: delta
+    });
+    if (rpcResult && rpcResult.ok) {
+        await blRefreshMyRanking();
+        lastRankingDelta = delta;
+        renderMatchSummaryRankingSection(delta);
+    }
+}
+
+// Injects a Ritual Points row into the (already-open) Match Summary modal
+// once the ranking RPC resolves. No-ops quietly if the modal isn't open —
+// the player's badge/leaderboard will simply reflect the new total next
+// time they check it.
+function renderMatchSummaryRankingSection(delta) {
+    let el = document.getElementById('msumRankingSection');
+    if (!el || !blRanking) return;
+    let tier = getTierForPoints(blRanking.points);
+    let sign = delta >= 0 ? '+' : '';
+    let deltaColor = delta >= 0 ? '#4af7a7' : '#ff5555';
+    el.innerHTML = `<div class="msum-rating-row" style="margin-top:0;">
+        <div>
+            <div class="msum-rating-label">Ritual Points</div>
+            <div style="font-size:11px; color:${tier.color}; font-weight:700; margin-top:2px;">${tier.icon} ${tier.name}${blRanking.worldRank ? ` · World #${blRanking.worldRank}` : ''}</div>
+        </div>
+        <div style="text-align:right;">
+            <div class="msum-rating-value" style="color:${deltaColor};">${sign}${delta}</div>
+            <div class="msum-rating-max">${blRanking.points} RP total</div>
+        </div>
+    </div>`;
+}
+
+// Small badge shown next to the account welcome line on the setup screen.
+function blRenderRankBadge() {
+    let el = document.getElementById('accountRankBadge');
+    if (!el) return;
+    if (!blRanking) { el.style.display = 'none'; return; }
+    let tier = getTierForPoints(blRanking.points);
+    el.style.display = 'inline-flex';
+    el.style.color = tier.color;
+    el.style.borderColor = tier.color + '55';
+    el.innerHTML = `${tier.icon} ${tier.name}${blRanking.worldRank ? ` · #${blRanking.worldRank}` : ''}`;
+}
+
+async function openRankingModal() {
+    document.getElementById('rankingModal').style.display = 'flex';
+    bl_pushState({ modal: 'ranking' });
+    switchRankingTab('mine');
+    await blRefreshMyRanking();
+    renderMyRankingView();
+    renderRankTierLadder();
+}
+function closeRankingModal() {
+    document.getElementById('rankingModal').style.display = 'none';
+    if (bl_hist.modal === 'ranking') history.back();
+}
+function switchRankingTab(tab) {
+    document.getElementById('rankTabMineBtn').classList.toggle('guide-tab-active', tab === 'mine');
+    document.getElementById('rankTabBoardBtn').classList.toggle('guide-tab-active', tab === 'board');
+    document.getElementById('rankMineView').style.display = tab === 'mine' ? 'block' : 'none';
+    document.getElementById('rankBoardView').style.display = tab === 'board' ? 'block' : 'none';
+    if (tab === 'board') loadLeaderboard();
+}
+function renderMyRankingView() {
+    let view = document.getElementById('rankMineView');
+    if (!blAccount) {
+        view.innerHTML = `<p class="guide-card-desc" style="text-align:center; padding:14px 0 10px 0;">Log in to join the World Ranking.</p>
+        <div class="guide-section-label">Tiers</div>
+        <div id="rankTierLadder" style="display:flex; flex-direction:column; gap:3px; margin-bottom:4px;"></div>`;
+        return;
+    }
+    if (!blRanking) {
+        view.innerHTML = `<p class="guide-card-desc" style="text-align:center; padding:14px 0;">Loading…</p>`;
+        return;
+    }
+    let tier = getTierForPoints(blRanking.points);
+    let progressPct = tier.nextMin ? Math.max(0, Math.min(100, Math.round((blRanking.points - tier.min) / (tier.nextMin - tier.min) * 100))) : 100;
+    let played = blRanking.wins + blRanking.losses + blRanking.draws;
+    view.innerHTML = `
+        <div class="profile-header" style="flex-direction:column; align-items:stretch; text-align:center;">
+            <div style="font-size:34px;">${tier.icon}</div>
+            <div style="font-size:15px; font-weight:700; color:${tier.color}; margin-top:4px;">${tier.name}</div>
+            <div style="font-size:11px; color:#8a8f98; margin-top:2px;">${blRanking.points} RP${blRanking.worldRank ? ` · World Rank #${blRanking.worldRank}` : ''}</div>
+        </div>
+        ${tier.nextMin ? `<div class="msum-bar-track" style="height:8px; margin:4px 0 4px 0;"><div class="msum-bar-fill" style="width:${progressPct}%; background:${tier.color};"></div></div>
+        <div style="font-size:9.5px; color:#5a5f68; text-align:center; margin-bottom:12px;">${blRanking.points - tier.min} / ${tier.nextMin - tier.min} RP to next tier</div>`
+        : `<div style="font-size:9.5px; color:#5a5f68; text-align:center; margin:4px 0 12px 0;">Peak tier reached</div>`}
+        <div class="profile-record-row">
+            <div><div class="profile-record-num">${played}</div><div class="profile-record-label">Played</div></div>
+            <div><div class="profile-record-num">${blRanking.wins}</div><div class="profile-record-label">Wins</div></div>
+            <div><div class="profile-record-num">${blRanking.losses}</div><div class="profile-record-label">Losses</div></div>
+            <div><div class="profile-record-num">${blRanking.draws}</div><div class="profile-record-label">Draws</div></div>
+        </div>
+        <div class="guide-section-label">Tiers</div>
+        <div id="rankTierLadder" style="display:flex; flex-direction:column; gap:3px; margin-bottom:12px;"></div>
+        <div class="guide-section-label">How Ritual Points Work</div>
+        <div class="guide-card-desc">Win +${RANK_PTS.WIN} base, +${RANK_PTS.KILL}/kill, +${RANK_PTS.REVIVE}/revive, +${RANK_PTS.IMPRISON}/imprison, +${RANK_PTS.ALIVE_CARD}/card left standing, +${RANK_PTS.REMAINING_HEX}/hex remaining, plus your match rating — all scaled by your tier. The higher you climb, the less a win pays and the more a loss costs.</div>
+    `;
+}
+function renderRankTierLadder() {
+    let el = document.getElementById('rankTierLadder');
+    if (!el) return;
+    el.innerHTML = RANK_TIERS.slice().reverse().map(t => {
+        let isMine = blRanking && getTierForPoints(blRanking.points).name === t.name;
+        return `<div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:6px; ${isMine ? `background:${t.color}22; border:1px solid ${t.color}55;` : ''}">
+            <span style="font-size:15px;">${t.icon}</span>
+            <span style="font-size:10.5px; font-weight:${isMine ? 700 : 500}; color:${isMine ? t.color : '#c7c9cf'}; flex:1;">${t.name}</span>
+            <span style="font-size:9px; color:#5a5f68;">${t.min}+ RP</span>
+        </div>`;
+    }).join('');
+}
+async function loadLeaderboard() {
+    let view = document.getElementById('rankBoardView');
+    view.innerHTML = `<p class="guide-card-desc" style="text-align:center; padding:14px 0;">Loading top 100…</p>`;
+    let result = await blCallAccountRpc('get_leaderboard_top100', {});
+    if (!result || !result.ok) {
+        view.innerHTML = `<p class="guide-card-desc" style="text-align:center; padding:14px 0; color:#ff8888;">Could not load the leaderboard.</p>`;
+        return;
+    }
+    let rows = result.leaderboard || [];
+    if (rows.length === 0) {
+        view.innerHTML = `<p class="guide-card-desc" style="text-align:center; padding:14px 0;">No ranked matches recorded yet — be the first.</p>`;
+        return;
+    }
+    view.innerHTML = rows.map(r => {
+        let tier = getTierForPoints(r.ranking_points);
+        let isMe = blAccount && r.username === blAccount.username;
+        let medal = r.world_rank === 1 ? '🥇' : r.world_rank === 2 ? '🥈' : r.world_rank === 3 ? '🥉' : `#${r.world_rank}`;
+        return `<div class="mhist-entry" style="border-left-color:${tier.color}; ${isMe ? `background:${tier.color}18;` : ''}">
+            <div style="width:30px; flex-shrink:0; font-size:11px; font-weight:700; color:#c7c9cf;">${medal}</div>
+            <div style="flex:1; min-width:0;">
+                <div style="font-size:12px; font-weight:700; color:#f7f8f8;">${blEscapeHtml(r.username)}${isMe ? ' (you)' : ''}</div>
+                <div style="font-size:9.5px; color:${tier.color};">${tier.icon} ${tier.name}</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+                <div style="font-size:12px; font-weight:700; color:#f7f8f8;">${r.ranking_points} RP</div>
+                <div style="font-size:9px; color:#5a5f68;">${r.wins}W-${r.losses}L-${r.draws}D</div>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // ============================================================================
 // PLAYER PROFILES
 // Avatar + bio + favourite-card badge, plus a performance-breakdown radar
+
 // chart (Attack / Heal / Tactical / Win Rate, averaged over the last 20
 // recorded multiplayer matches) and the match history list itself. Backed by
 // the same Supabase project as accounts/friends — see
@@ -2655,7 +2930,7 @@ function bl_bootIntoGameScreen() {
     bl_pushState({ screen: 'game', modal: null });
 }
 function bl_hideModalUI(name) {
-    const ids = { guide: 'guideModal', chat: 'chatModal', friends: 'friendsModal', settings: 'settingsModal', summary: 'matchSummaryModal', profile: 'profileModal', favcard: 'favCardModal' };
+    const ids = { guide: 'guideModal', chat: 'chatModal', friends: 'friendsModal', settings: 'settingsModal', summary: 'matchSummaryModal', profile: 'profileModal', favcard: 'favCardModal', ranking: 'rankingModal' };
     const el = document.getElementById(ids[name]);
     if (el) el.style.display = 'none';
 }
@@ -2721,12 +2996,15 @@ function blRenderAccountUI() {
         blRefreshFriends();
         blStartInvitePolling();
         blRefreshOwnFavBadge();
+        blRefreshMyRanking();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
         blStopInvitePolling();
         blHideInviteBanner();
         blMyFavouriteCard = null;
+        blRanking = null;
+        blRenderRankBadge();
     }
 }
 
@@ -3351,6 +3629,7 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
     matchStats = {};
     matchSummaryShown = false;
     matchRecorded = false;
+    lastRankingDelta = null;
     abortTargetingSequence();
 
     document.getElementById('setupView').style.display = 'none';
@@ -7076,7 +7355,7 @@ const GUIDE_DATA = {
         { name: 'Sorcerer', tag: 'Mystic', hex: 2, desc: "Takes control of one enemy for a single move, forcing it to attack its own side. Can't hijack Wendigo, Dementor, Chronos, or Bartender. Also gets Mystic Purge. Must sit out a turn after using it." },
         { name: 'Singer', tag: 'Artist', hex: 2, desc: "Hits two different enemies for 1 damage each in one move. Must sit out a turn after using it." },
         { name: 'Witch', tag: 'Mystic', hex: 2, desc: "Damages an enemy for 1 and poisons it — poison ticks off 1 extra hex every future turn that card acts, until cured. Also gets Mystic Purge." },
-        { name: 'Wendigo', tag: 'Mystic', hex: 1, desc: "Completely untouchable until it transforms. At any time, for free, it can permanently shapeshift into an unused Bloodbane character and gain +1 max hex. Must sit out a turn after using its normal move." },
+        { name: 'Wendigo', tag: 'Entity', hex: 1, desc: "Completely untouchable until it transforms. At any time, for free, it can permanently shapeshift into an unused Bloodbane character and gain +1 max hex. Must sit out a turn after using its normal move." },
     ],
     Bloodborne: [
         { name: 'Mecha', tag: 'Bloodsmith', hex: 2, desc: "Fuses with an ally — Spy, Robber, Hood, Witch, Knight, Cop, or Ninja — letting that pairing land two hits in a single turn. 3-turn cooldown between uses." },
