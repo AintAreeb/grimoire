@@ -1549,6 +1549,7 @@ const CARD_POOL = [
     { name: 'Jinn', tag: 'Entity', maxHex: 2, tier: 1, cooldown: 'consecutive', category: 'Bloodborne' },
     { name: 'Chronos', tag: 'Bloodsmith', maxHex: 2, tier: 3, cooldown: '3moves', category: 'Bloodborne' },
     { name: 'Hacker', tag: 'Criminal', maxHex: 2, tier: 3, cooldown: '3moves', category: 'Bloodborne' },
+    { name: 'Warlock', tag: 'Mystic', maxHex: 3, tier: 3, cooldown: 'consecutive', category: 'Bloodborne' },
 
     // Heroics/SacredSouls
     { name: 'Actor', tag: 'Artist', maxHex: 1, tier: 3, cooldown: 'none', isHeroic: true, category: 'Heroic' },
@@ -2272,7 +2273,8 @@ const TITLE_DEFS = [
     { id: 'masamune', name: 'Masamune', category: 'character', character: 'Mage', goal: 10 },
     { id: 'brisingamen', name: 'Brisingamen', category: 'character', character: 'Doctor', goal: 10 },
     { id: 'dyrnwyn', name: 'Dyrnwyn', category: 'character', character: 'Bartender', goal: 10 },
-    { id: 'labrys', name: 'Labrys', category: 'character', character: 'Jinn', goal: 10 }
+    { id: 'labrys', name: 'Labrys', category: 'character', character: 'Jinn', goal: 10 },
+    { id: 'gaebolg', name: 'Gáe Bolg', category: 'character', character: 'Warlock', goal: 10 }
 ];
 
 const TITLE_BY_ID_MAP = {};
@@ -4834,6 +4836,11 @@ function hasValidTargets(card, allies, enemies) {
         let hasEnemyEntities = enemies.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity');
         return hasDeadAllies || hasEnemyEntities;
     }
+    if (card.name === 'Warlock') {
+        let hasImprisonedAllies = allies.some(c => c.imprisoned && c.name !== 'Spy');
+        let hasEnemyEntities = enemies.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity');
+        return hasImprisonedAllies || hasEnemyEntities;
+    }
     if (card.name === 'Mecha') {
         let hasPartner = allies.some(c => c.hex > 0 && !c.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(c.name));
         return hasPartner && harmfulEnemies.length > 0;
@@ -5162,6 +5169,9 @@ function handleDementorRoleSelection(roleName, actorId) {
     else if (roleName === 'Imam') {
         launchDementorImamPad(dementorCard);
     }
+    else if (roleName === 'Warlock') {
+        launchDementorWarlockPad(dementorCard);
+    }
 }
 
 // Reuses Dementor's own choice modal to present the exact real Mage
@@ -5190,6 +5200,38 @@ function launchDementorMagePad(dementorCard) {
     }
     if (!hasOption) {
         writeLog('💀 Dementor found no valid Mage action to mimic right now (needs Hex to revive or an Entity target to purge).');
+        document.getElementById('dementorChoiceModal').style.display = 'none';
+        return;
+    }
+    document.getElementById('dementorChoiceModal').style.display = 'flex';
+}
+
+// Same idea as launchDementorMagePad but for Warlock: offers the Release
+// tiers (only shown if an imprisoned ally other than Spy actually exists)
+// and/or Mystic Purge, matching the real card exactly.
+function launchDementorWarlockPad(dementorCard) {
+    let container = document.getElementById('dementorOptionsContainer');
+    container.innerHTML = '';
+    let hasOption = false;
+    let hasImprisonedAlly = gameState.p1.some(c => c.imprisoned && c.name !== 'Spy');
+    const addBtn = (label, bg, action) => {
+        hasOption = true;
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = bg;
+        b.innerText = label;
+        b.onclick = () => { document.getElementById('dementorChoiceModal').style.display = 'none'; action(); };
+        container.appendChild(b);
+    };
+    if (hasImprisonedAlly && dementorCard.hex >= 1) addBtn('RELEASE 1 (1 HEX)', '#673ab7', () => openTargetingOverlay(dementorCard.id, 'warlock_release_1', '🔗 DEMENTOR AS WARLOCK (RELEASE 1 HEX)'));
+    if (hasImprisonedAlly && dementorCard.hex >= 2) addBtn('RELEASE 2 (2 HEX)', '#673ab7', () => openTargetingOverlay(dementorCard.id, 'warlock_release_2', '🔗 DEMENTOR AS WARLOCK (RELEASE 2 HEX)'));
+    if (hasImprisonedAlly && dementorCard.hex >= 3) addBtn('RELEASE 3 (3 HEX)', '#673ab7', () => openTargetingOverlay(dementorCard.id, 'warlock_release_3', '🔗 DEMENTOR AS WARLOCK (RELEASE 3 HEX)'));
+    if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+        addBtn('MYSTIC PURGE', '#4a148c', () => openTargetingOverlay(dementorCard.id, 'mystic_purge', '✨ DEMENTOR AS WARLOCK (PURGE)'));
+    }
+    if (!hasOption) {
+        writeLog('💀 Dementor found no valid Warlock action to mimic right now (no imprisoned ally to free and no Entity target to purge).');
         document.getElementById('dementorChoiceModal').style.display = 'none';
         return;
     }
@@ -5309,6 +5351,13 @@ function handleSorcererSelection(actorId, enemyId) {
         launchSorcererImamPad(actorCard, preEffectSnapshot);
         return;
     }
+    if (enemy.name === 'Warlock') {
+        actorCard.hasActivity = true;
+        gameState.pendingSorcererFeedback = enemy.id;
+        writeLog(`🔮 Control Sequence: channeling Warlock's power!`);
+        launchSorcererWarlockPad(actorCard, preEffectSnapshot);
+        return;
+    }
 
     actorCard.hex = Math.max(0, actorCard.hex - 1);
     actorCard.hasActivity = true;
@@ -5395,6 +5444,41 @@ function launchSorcererImamPad(actorCard, preEffectSnapshot) {
         gameState.pendingSorcererFeedback = null;
         if (preEffectSnapshot && preEffectSnapshot.actor) Object.assign(actorCard, preEffectSnapshot.actor);
         writeLog('🔮 Sorcerer found no valid Imam action to hijack right now — hijack refunded.');
+        renderScene();
+        return;
+    }
+    document.getElementById('sorcererChoiceModal').style.display = 'flex';
+}
+
+// Same idea as launchSorcererMagePad but for Warlock: offers the Release
+// tiers (only if the Sorcerer's own side actually has an imprisoned ally
+// other than Spy) and/or Mystic Purge, refunding the hijack entirely if
+// neither is usable.
+function launchSorcererWarlockPad(actorCard, preEffectSnapshot) {
+    let container = document.getElementById('sorcererOptionsContainer');
+    container.innerHTML = '';
+    let hasOption = false;
+    let hasImprisonedAlly = gameState.p1.some(c => c.imprisoned && c.name !== 'Spy');
+    const addBtn = (label, bg, action) => {
+        hasOption = true;
+        let b = document.createElement('button');
+        b.className = 'btn';
+        b.style.margin = '2px 0';
+        b.style.background = bg;
+        b.innerText = label;
+        b.onclick = () => { document.getElementById('sorcererChoiceModal').style.display = 'none'; action(); };
+        container.appendChild(b);
+    };
+    if (hasImprisonedAlly && actorCard.hex >= 1) addBtn('RELEASE 1 (1 HEX)', '#673ab7', () => openTargetingOverlay(actorCard.id, 'warlock_release_1', '🔗 HIJACKED WARLOCK: RELEASE (1 HEX)'));
+    if (hasImprisonedAlly && actorCard.hex >= 2) addBtn('RELEASE 2 (2 HEX)', '#673ab7', () => openTargetingOverlay(actorCard.id, 'warlock_release_2', '🔗 HIJACKED WARLOCK: RELEASE (2 HEX)'));
+    if (hasImprisonedAlly && actorCard.hex >= 3) addBtn('RELEASE 3 (3 HEX)', '#673ab7', () => openTargetingOverlay(actorCard.id, 'warlock_release_3', '🔗 HIJACKED WARLOCK: RELEASE (3 HEX)'));
+    if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+        addBtn('MYSTIC PURGE', '#4a148c', () => openTargetingOverlay(actorCard.id, 'mystic_purge', '✨ HIJACKED WARLOCK: PURGE'));
+    }
+    if (!hasOption) {
+        gameState.pendingSorcererFeedback = null;
+        if (preEffectSnapshot && preEffectSnapshot.actor) Object.assign(actorCard, preEffectSnapshot.actor);
+        writeLog('🔮 Sorcerer found no valid Warlock action to hijack (no imprisoned ally to free and no Entity target to purge) — hijack refunded.');
         renderScene();
         return;
     }
@@ -5924,6 +6008,20 @@ function processSelectedTarget(targetId) {
         writeLog(`🧙‍♂️ Your Mage sacrificed ${hexToUse} Hex to resurrect dead bluster ${ally.name}.`);
         if (actorCard.hex <= 0) actorCard.hex = 0;
         queueRecap('revive', ally);
+        concludeTargetedMove(actorCard.id, baseMove);
+        return;
+    }
+
+    if (baseMove.startsWith('warlock_release_')) {
+        let hexToUse = parseInt(baseMove.split('_')[2]);
+        actorCard.hex -= hexToUse;
+        actorCard.hasActivity = true;
+        actorCard.lastUsedRound = gameState.roundCount;
+        ally.hex = hexToUse;
+        ally.imprisoned = false;
+        writeLog(`🔗 Your Warlock spent ${hexToUse} Hex to break ${ally.name} free from imprisonment.`);
+        if (actorCard.hex <= 0) actorCard.hex = 0;
+        queueRecap('freed', ally);
         concludeTargetedMove(actorCard.id, baseMove);
         return;
     }
@@ -6528,7 +6626,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
 const ROLE_THREAT_VALUE = {
     Killer: 9, Ninja: 8, Dictator: 8, Sorcerer: 8, Mecha: 8,
     Spy: 7, Dementor: 7, Hacker: 7, Wraith: 7,
-    Witch: 6, Cop: 6, Chronos: 6, Singer: 6, Lawyer: 6, Mage: 6,
+    Witch: 6, Cop: 6, Chronos: 6, Singer: 6, Lawyer: 6, Mage: 6, Warlock: 6,
     Knight: 5, Hood: 5, Robber: 5, Jinn: 5, Bartender: 5, Imam: 5,
     Wendigo: 4, Doctor: 4,
     Actor: 3, Therapist: 3, Princess: 3, Reporter: 3, Terrorist: 4
@@ -6541,7 +6639,7 @@ function roleThreatValue(name) {
 // Ruthless/Mastermind reach for these once no kill is available.
 const DISRUPTOR_ROLES = ['Dictator', 'Lawyer', 'Jinn', 'Sorcerer', 'Witch', 'Dementor'];
 // Roles Aggressive considers "not a real attack" and avoids unless forced.
-const SUPPORT_ROLES = ['Doctor', 'Chronos', 'Imam', 'Princess', 'Therapist', 'Reporter', 'Actor', 'Bartender'];
+const SUPPORT_ROLES = ['Doctor', 'Chronos', 'Imam', 'Princess', 'Therapist', 'Reporter', 'Actor', 'Bartender', 'Warlock'];
 
 // Total effective Hex on a side (Spy's Infinity maxHex is capped so it can't
 // skew the board-state comparison Mastermind uses to decide whether it's
@@ -6983,6 +7081,27 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         applyShieldedDamage(targetPlayer, 1);
                         writeLog(`🤖 Bot Mage strikes your ${targetPlayer.name} for 1 damage.`);
                     }
+                } else if (aiActor.name === 'Warlock') {
+                    let imprisonedBots = gameState.p2.filter(c => c.imprisoned && c.name !== 'Spy');
+                    if (imprisonedBots.length > 0) {
+                        let target = imprisonedBots[0];
+                        let cost = Math.min(aiActor.hex, 3);
+                        if (cost >= 1) {
+                            aiActor.hex -= cost;
+                            target.hex = cost;
+                            target.imprisoned = false;
+                            writeLog(`🤖 Bot Warlock spent ${cost} Hex to break ${target.name} free from imprisonment.`);
+                            queueRecap('freed', target);
+                        } else {
+                            executedAction = false;
+                        }
+                    } else if (targetPlayer.tag === 'Entity') {
+                        applyShieldedDamage(targetPlayer, 1);
+                        writeLog(`✨ Bot Warlock used Mystic Purge on Entity ${targetPlayer.name}, dealing 1 pure damage.`);
+                    } else {
+                        writeLog(`🔗 Bot Warlock found no imprisoned ally to free and no Entity to purge.`);
+                        executedAction = false;
+                    }
                 } else if (aiActor.name === 'Mecha') {
                     let partnerPool = gameState.p2.filter(c => c.id !== aiActor.id && c.hex > 0 && !c.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(c.name));
                     let enemyPool = getBotCandidatePool(aiActor, gameState.p1);
@@ -7328,6 +7447,7 @@ function renderScene() {
             if (m === 'hood_step2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
             if (m === 'mecha_hood_share_2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
             if (m.startsWith('mage_revive_') && isDead) isEligibleAlly = true;
+            if (m.startsWith('warlock_release_') && card.imprisoned && card.name !== 'Spy') isEligibleAlly = true;
             if (m === 'mecha_select_partner' && !isDead && !card.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(card.name)) isEligibleAlly = true;
             if (m === 'sorcerer_hijacked_action' && !isDead && !card.imprisoned && gameState.targetingMode.metadata.originalType === 'Doctor' && card.hex < card.maxHex) isEligibleAlly = true;
         }
@@ -7395,7 +7515,7 @@ function renderScene() {
                         isEligibleEnemy = true;
                     }
                 }
-            } else if (!isDead && !card.imprisoned && m !== 'doctor_heal' && !m.startsWith('reporter_heal_') && m !== 'hood_step2' && m !== 'mecha_hood_share_2' && !m.startsWith('mage_revive_') && m !== 'mecha_select_partner') {
+            } else if (!isDead && !card.imprisoned && m !== 'doctor_heal' && !m.startsWith('reporter_heal_') && m !== 'hood_step2' && m !== 'mecha_hood_share_2' && !m.startsWith('mage_revive_') && !m.startsWith('warlock_release_') && m !== 'mecha_select_partner') {
                 if (!card.isHeroic) {
                     if (m === 'mystic_purge') {
                         if (card.tag === 'Entity' && !isHarmMoveWasted(card)) isEligibleEnemy = true;
@@ -7573,6 +7693,14 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
                 btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
             }
         }
+        if (card.name === 'Warlock') {
+            if (card.hex >= 1) btns.push(`<button class="btn" style="background:#673ab7;" onclick="openTargetingOverlay('${card.id}', 'warlock_release_1', '🔗 WARLOCK RELEASE (1 HEX)')">Release 1</button>`);
+            if (card.hex >= 2) btns.push(`<button class="btn" style="background:#673ab7;" onclick="openTargetingOverlay('${card.id}', 'warlock_release_2', '🔗 WARLOCK RELEASE (2 HEX)')">Release 2</button>`);
+            if (card.hex >= 3) btns.push(`<button class="btn" style="background:#673ab7;" onclick="openTargetingOverlay('${card.id}', 'warlock_release_3', '🔗 WARLOCK RELEASE (3 HEX)')">Release 3</button>`);
+            if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
+                btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
+            }
+        }
         if (card.name === 'Mecha') {
             btns.push(`<button class="btn" style="background:#009688;" onclick="runMechaAbilityPad('${card.id}')">Fuse</button>`);
         }
@@ -7683,6 +7811,7 @@ const GUIDE_DATA = {
         { name: 'Bartender', tag: 'Criminal', hex: 2, desc: "Copies whatever move the enemy used on their last turn. Must sit out a turn after using it." },
         { name: 'Jinn', tag: 'Entity', hex: 2, desc: "Locks down one enemy, blocking it from acting for its next 3 turns. Must sit out a turn after using it." },
         { name: 'Chronos', tag: 'Bloodsmith', hex: 2, desc: "Rewinds time, undoing whatever the enemy's last attack did to your team. 3-turn cooldown between uses." },
+        { name: 'Warlock', tag: 'Mystic', hex: 3, desc: "Spends its own hex to break an imprisoned ally free, restoring it to that same amount of hex. Can't release Spy. Also gets Mystic Purge. Must sit out a turn after using it." },
     ],
     Heroic: [
         { name: 'Actor', tag: 'Artist', hex: 1, desc: "Instantly becomes almost any other Bloodbane or Bloodborne character and uses that character's move for one turn." },
