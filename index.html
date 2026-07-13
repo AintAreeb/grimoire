@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>eldritch</title>
+    <title>grimoire</title>
     <style>
         /* Linear.app Premium Dark Theme Matrix */
         body { 
@@ -35,7 +35,7 @@
             color: #e8e0c9;
             text-align: center;
             margin: 0 0 4px 0;
-            filter: url(#eldritchTexture);
+            filter: url(#grimoireTexture);
             text-shadow:
                 0 2px 0 rgba(0,0,0,0.55),
                 0 0 18px rgba(255,51,51,0.3);
@@ -1161,7 +1161,7 @@
 </head>
 <body>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-        <filter id="eldritchTexture" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id="grimoireTexture" x="-20%" y="-20%" width="140%" height="140%">
             <feTurbulence type="fractalNoise" baseFrequency="0.12 0.22" numOctaves="3" seed="7" result="noise"/>
             <feDisplacementMap in="SourceGraphic" in2="noise" scale="3"/>
         </filter>
@@ -1214,7 +1214,7 @@
 
     <div id="setupView" class="setup-screen">
         <button class="settings-fab-btn" onclick="openSettingsModal()" title="Settings">⚙️</button>
-        <h1 class="wordmark"><span>e</span><span>l</span><span>d</span><span>r</span><span>i</span><span>t</span><span>c</span><span>h</span></h1>
+        <h1 class="wordmark"><span>g</span><span>r</span><span>i</span><span>m</span><span>o</span><span>i</span><span>r</span><span>e</span></h1>
 
         <div id="accountBox" class="account-box">
             <div id="accountLoggedOut">
@@ -1257,7 +1257,7 @@
                 <button class="btn diff-btn" data-diff="mastermind" style="width:auto; padding:8px 14px; font-size:10px;" onclick="setDifficulty('mastermind', this)">👑 MASTERMIND</button>
             </div>
             <div id="difficultyDescription" style="text-align:center; font-size:10.5px; color:#8a8f98; min-height:28px; margin:0 auto 14px auto; max-width:320px; line-height:1.4;"></div>
-            <button class="start-btn" onclick="initializeMatch()">INITIALIZE ELDRITCH</button>
+            <button class="start-btn" onclick="initializeMatch()">INITIALIZE GRIMOIRE</button>
         </div>
 
         <div id="localPanel" style="display:none;">
@@ -1310,7 +1310,7 @@
 
     <div id="gameView" style="display: none;">
         <button class="back-fab-btn" onclick="blConfirmBackFromMatch()" title="Back">←</button>
-        <h1 class="wordmark"><span>e</span><span>l</span><span>d</span><span>r</span><span>i</span><span>t</span><span>c</span><span>h</span></h1>
+        <h1 class="wordmark"><span>g</span><span>r</span><span>i</span><span>m</span><span>o</span><span>i</span><span>r</span><span>e</span></h1>
         <div class="turn-display" id="turnIndicator"></div>
         
         <div class="targeting-status" id="targetBar"></div>
@@ -1689,7 +1689,7 @@ let gameState = {
 // so blVibrate/blVibrateStop just silently no-op there rather than erroring
 // — there's no reliable way to give haptic feedback on iOS web from here.
 // ============================================================================
-const BL_SETTINGS_KEY = 'eldritch_settings';
+const BL_SETTINGS_KEY = 'grimoire_settings';
 let blSettings = { vibration: true }; // vibration defaults ON
 function blLoadSettings() {
     try {
@@ -2000,7 +2000,7 @@ function recordMultiplayerMatchIfNeeded() {
 // ============================================================================
 // WORLD RANKING
 // A global, competitive, adaptive rating ladder layered on top of the same
-// Supabase project (see eldritch_ranking_setup.sql for the one-time,
+// Supabase project (see grimoire_ranking_setup.sql for the one-time,
 // additive database setup — it only creates new tables/functions and never
 // touches anything the account/profile/friends systems already rely on).
 // Only real multiplayer matches count, mirroring recordMultiplayerMatchIfNeeded.
@@ -2260,7 +2260,7 @@ async function loadLeaderboard() {
 // matches with a specific character on your squad). Only one title can be
 // equipped at a time; every earned (and unearned, locked) title is browsable
 // in the Mastery tab of the Profile modal. Backed by the same Supabase
-// project as accounts/profiles/ranking — see eldritch_titles_setup.sql for
+// project as accounts/profiles/ranking — see grimoire_titles_setup.sql for
 // the one-time database setup (adds a single additive player_titles table
 // + 3 RPC functions; nothing existing is touched).
 // ============================================================================
@@ -2425,7 +2425,7 @@ function renderProfileTitles() {
 // chart (Attack / Heal / Tactical / Win Rate, averaged over the last 20
 // recorded multiplayer matches) and the match history list itself. Backed by
 // the same Supabase project as accounts/friends — see
-// eldritch_profiles_setup.sql for the one-time database setup (adds
+// grimoire_profiles_setup.sql for the one-time database setup (adds
 // player_profiles + match_history tables and 4 RPC functions).
 // ============================================================================
 const PROFILE_AVATAR_OPTIONS = ['🧙','🧛','🧟','🧞','👹','👺','💀','👻','🤖','🥷','🕵️','🦹','🧑‍⚖️','👑','🐺','🦇','🐍','🔪','⚔️','🛡️','🔮','🩸','⚙️','🎭'];
@@ -3180,7 +3180,7 @@ const BOT_STYLE_DESCRIPTIONS = {
     aggressive: 'Always swings with whatever can attack right now. No focus fire, no defense, no plan — punishes hesitation but is easy to out-maneuver.',
     tactical: 'Focus-fires whatever is closest to dying and takes a free kill when it sees one, but doesn\'t think many moves ahead.',
     ruthless: 'Hunts kills first, then disrupts your most dangerous card with imprison/poison/lockdown. Efficient and hard to get free value against.',
-    mastermind: 'Full-board evaluation every turn: secures kills without overextending, targets your biggest threats, and manages its own Hex to stay ahead. The strongest opponent Eldritch has.'
+    mastermind: 'Full-board evaluation every turn: secures kills without overextending, targets your biggest threats, and manages its own Hex to stay ahead. The strongest opponent Grimoire has.'
 };
 function setDifficulty(level, btnEl) {
     gameState.difficulty = level;
@@ -3243,14 +3243,14 @@ window.addEventListener('popstate', (e) => {
 // ACCOUNTS (real, cross-device — backed by your own free Supabase project)
 // This file has no server of its own, so "an account that works from any
 // device" has to talk to something real. Fill in your project's URL and
-// public anon key below (see eldritch_accounts_setup.sql for the one-time
+// public anon key below (see grimoire_accounts_setup.sql for the one-time
 // database setup). Both values are meant to be public/embedded in
 // client-side code — Supabase's Row Level Security + the two RPC functions
 // are what actually keep this safe, not secrecy of these values.
 const SUPABASE_URL = 'https://bgryhaxudtgjosdwcvza.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_M50JE0mHtDCGh6CcRwzfTQ_RXqkB69v';
 
-const BL_ACCOUNT_KEY = 'eldritch_account'; // remembers who's logged in on THIS device
+const BL_ACCOUNT_KEY = 'grimoire_account'; // remembers who's logged in on THIS device
 let blAccount = null; // { username } | null
 
 async function blCallAccountRpc(fnName, payload) {
@@ -3355,7 +3355,7 @@ function blLogout() {
 
 // ============================================================================
 // FRIENDS (backed by the same Supabase project — see
-// eldritch_friends_setup.sql for the one-time database setup)
+// grimoire_friends_setup.sql for the one-time database setup)
 // ============================================================================
 let blFriendsData = { friends: [], incoming: [], outgoing: [] };
 let blFriendsTab = 'list';
@@ -3941,7 +3941,7 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
     document.getElementById('combatLog').innerHTML = '';
     bl_enterGameScreen();
 
-    writeLog("Engine Integrated. Eldritch allocated exactly: 5 Bloodbanes, 4 Bloodbornes, 1 Heroic.");
+    writeLog("Engine Integrated. Grimoire allocated exactly: 5 Bloodbanes, 4 Bloodbornes, 1 Heroic.");
     if (opts.vsBot) {
         writeLog(`💠 Tier totals — Your Squad: ${p1Tier} | Bot Squad: ${p2Tier}.`);
         if (p1Tier === p2Tier) {
@@ -4037,7 +4037,7 @@ function handleRematchClick() {
 // MULTIPLAYER — serverless P2P via Trystero (WebRTC over public BitTorrent
 // trackers). No backend, no account, no server to run or pay for.
 // =====================================================================
-const MP_APP_ID = 'eldritch-cardgame-v1';
+const MP_APP_ID = 'grimoire-cardgame-v1';
 
 // Trystero's default STUN-only setup can't connect two peers when at least
 // one is behind a strict/symmetric NAT (common on mobile carriers). This adds
@@ -4110,8 +4110,8 @@ function mpRestoreFromWire(value) {
 // reload, and (b) once rejoined, ask the still-connected peer for the
 // authoritative current state (a "resync") rather than trusting our own
 // possibly-stale local snapshot, since the opponent may have kept playing.
-const BL_SESSION_KEY = 'eldritch_mp_session';
-const BL_SNAPSHOT_KEY = 'eldritch_mp_snapshot';
+const BL_SESSION_KEY = 'grimoire_mp_session';
+const BL_SNAPSHOT_KEY = 'grimoire_mp_snapshot';
 const BL_SESSION_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 function mpSaveSession() {
@@ -4151,7 +4151,7 @@ function mpSaveSnapshot() {
 // ONLY copy of progress — saved after every render and restored wholesale on
 // reload, including resuming a bot turn that was mid-flight when the page
 // was left.
-const BL_SOLO_SNAPSHOT_KEY = 'eldritch_solo_snapshot';
+const BL_SOLO_SNAPSHOT_KEY = 'grimoire_solo_snapshot';
 const BL_SOLO_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 function saveSoloSnapshot() {
@@ -8233,7 +8233,7 @@ function renderTutorStep() {
 // Playback and each player's own playlist stay local to their browser
 // regardless of whose key served the search.
 
-const BL_MUSIC_KEY = 'eldritch_music';
+const BL_MUSIC_KEY = 'grimoire_music';
 let blMusic = { playlist: [], volume: 50, personalApiKey: '' };
 // Keys that have come back quota-exceeded this session — skipped on
 // subsequent searches so we don't keep wasting calls retrying them.
