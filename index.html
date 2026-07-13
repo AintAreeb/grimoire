@@ -189,6 +189,83 @@
             opacity: 0.50; 
         }
         
+        /* ====================================================================
+           CARD SKINS — alternate palettes/borders layered on the same
+           Premium Layered Metallic Card shape above. Applied as an extra
+           class on .card (own squad only) based on the equipped skin from
+           grimoire_cosmetics_setup.sql. Classic Ink = the base .card look,
+           so it needs no override class.
+           ==================================================================== */
+        .card-skin-crimsonledger {
+            border-color: rgba(180, 30, 40, 0.55);
+            background: linear-gradient(180deg, rgba(120, 20, 25, 0.16) 0%, rgba(40, 8, 10, 0.08) 100%);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 1px rgba(212,175,55,0.15);
+        }
+        .card-skin-ashwake {
+            border-color: rgba(140, 140, 150, 0.4);
+            background: linear-gradient(180deg, rgba(90, 80, 70, 0.14) 0%, rgba(255,120,40,0.05) 100%);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.08);
+        }
+        .card-skin-voidstatic {
+            border-color: rgba(150, 60, 255, 0.5);
+            background: linear-gradient(160deg, rgba(120,40,220,0.14) 0%, rgba(0,220,220,0.08) 100%);
+            box-shadow: 0 0 16px rgba(0,220,220,0.15), inset 0 1px 1px rgba(180,120,255,0.2);
+        }
+        .card-skin-gildedverdict {
+            border-color: rgba(212, 175, 55, 0.6);
+            background: linear-gradient(180deg, rgba(212,175,55,0.14) 0%, rgba(232,224,201,0.05) 100%);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,240,200,0.25);
+        }
+        .card-skin-bloodbanesigil {
+            border-color: rgba(120, 0, 10, 0.65);
+            background: linear-gradient(180deg, rgba(10,8,10,0.4) 0%, rgba(90,0,10,0.1) 100%);
+            box-shadow: 0 0 14px rgba(150,0,10,0.2), inset 0 1px 1px rgba(255,60,60,0.12);
+        }
+        .card-skin-bloodbornecircuit {
+            border-color: rgba(60, 160, 170, 0.5);
+            background: linear-gradient(180deg, rgba(40,60,65,0.18) 0%, rgba(20,20,25,0.1) 100%);
+            box-shadow: 0 0 14px rgba(60,200,210,0.14), inset 0 1px 1px rgba(180,220,220,0.15);
+        }
+        .card-skin-sacredember {
+            border-color: rgba(255, 235, 200, 0.55);
+            background: linear-gradient(180deg, rgba(255,245,220,0.12) 0%, rgba(255,210,120,0.05) 100%);
+            box-shadow: 0 0 18px rgba(255,220,150,0.2), inset 0 1px 1px rgba(255,255,255,0.3);
+        }
+        .card-skin-widowsink {
+            border-color: rgba(90, 20, 110, 0.55);
+            background: linear-gradient(180deg, rgba(30,10,35,0.35) 0%, rgba(10,8,12,0.15) 100%);
+            box-shadow: 0 0 14px rgba(110,20,140,0.15), inset 0 1px 1px rgba(200,160,220,0.12);
+        }
+        .card-skin-executionersmark {
+            border-color: rgba(255, 100, 20, 0.55);
+            background: linear-gradient(180deg, rgba(10,8,8,0.4) 0%, rgba(140,45,10,0.1) 100%);
+            box-shadow: 0 0 14px rgba(255,110,20,0.16), inset 0 1px 1px rgba(255,150,60,0.15);
+            clip-path: polygon(6% 0, 100% 0, 100% 94%, 94% 100%, 0 100%, 0 6%);
+        }
+
+        /* ====================================================================
+           BOARD THEMES — applied as a class on #gameView. Restyles the board
+           backdrop and the combat log's palette to match.
+           ==================================================================== */
+        #gameView.board-theme-bloodmoon { background: radial-gradient(ellipse at 50% -10%, rgba(140,10,20,0.16) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-bloodmoon .log { background: #150a0c; border-color: rgba(200,30,40,0.25); color: #ff6b6b; }
+        #gameView.board-theme-obsidianrift { background: radial-gradient(ellipse at 50% -10%, rgba(80,0,120,0.14) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-obsidianrift .log { background: #0a0710; border-color: rgba(140,60,220,0.25); color: #c98bff; }
+        #gameView.board-theme-parchmentnoir { background: radial-gradient(ellipse at 50% -10%, rgba(180,160,110,0.10) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-parchmentnoir .log { background: #14120c; border-color: rgba(200,180,130,0.25); color: #e8d9ab; }
+        #gameView.board-theme-verdanthex { background: radial-gradient(ellipse at 50% -10%, rgba(30,140,90,0.14) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-verdanthex .log { background: #0a1410; border-color: rgba(60,200,130,0.25); color: #6be8a6; }
+        #gameView.board-theme-staticbloom { background: radial-gradient(ellipse at 50% -10%, rgba(255,204,0,0.10) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-staticbloom .log { background: #14130a; border-color: rgba(255,204,0,0.25); color: #ffe07a; }
+        #gameView.board-theme-ashenvigil { background: radial-gradient(ellipse at 50% -10%, rgba(150,150,160,0.12) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-ashenvigil .log { background: #101012; border-color: rgba(180,180,190,0.22); color: #d8d8de; }
+        #gameView.board-theme-frostboundledger { background: radial-gradient(ellipse at 50% -10%, rgba(94,200,216,0.14) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-frostboundledger .log { background: #0a1214; border-color: rgba(94,200,216,0.28); color: #9fe8f2; }
+        #gameView.board-theme-neonunderworld { background: radial-gradient(ellipse at 50% -10%, rgba(255,0,180,0.14) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-neonunderworld .log { background: #12081a; border-color: rgba(255,0,200,0.3); color: #ff7af0; }
+        #gameView.board-theme-aurumsanctum { background: radial-gradient(ellipse at 50% -10%, rgba(212,175,55,0.16) 0%, rgba(8,7,16,0) 60%); }
+        #gameView.board-theme-aurumsanctum .log { background: #14110a; border-color: rgba(212,175,55,0.32); color: #f0dc9a; }
+
         .cooldown-badge { 
             position: absolute; 
             top: 6px; 
@@ -1593,10 +1670,12 @@
             <button class="guide-tab-btn guide-tab-active" id="profileTabInfoBtn" onclick="switchProfileTab('info')">Profile</button>
             <button class="guide-tab-btn" id="profileTabHistoryBtn" onclick="switchProfileTab('history')">Match History</button>
             <button class="guide-tab-btn" id="profileTabTitlesBtn" onclick="switchProfileTab('titles')">Titles</button>
+            <button class="guide-tab-btn" id="profileTabCosmeticsBtn" onclick="switchProfileTab('cosmetics')">Skins</button>
         </div>
         <div class="guide-body" id="profileInfoView"></div>
         <div class="guide-body" id="profileHistoryView" style="display:none;"></div>
         <div class="guide-body" id="profileTitlesView" style="display:none;"></div>
+        <div class="guide-body" id="profileCosmeticsView" style="display:none;"></div>
         <button class="guide-close-btn" onclick="closeProfileModal()">Close</button>
     </div>
 
@@ -2288,6 +2367,7 @@ async function blRefreshMyRanking() {
         blRanking = { points: 0, wins: 0, losses: 0, draws: 0, worldRank: null };
     }
     blRenderRankBadge();
+    await blRecordCosmeticRankPeak();
 }
 
 // Computes the adaptive Ritual Point delta for the just-finished match and
@@ -2559,6 +2639,216 @@ function titleCurrentProgress(t, stats) {
     return t.category === 'character' ? ((stats.charWins && stats.charWins[t.character]) || 0) : (stats[t.stat] || 0);
 }
 
+// ============================================================================
+// COSMETICS — CARD SKINS & BOARD THEMES
+// 10 card skins + 10 board themes, unlocked from the same lifetime stats
+// already tracked for Titles (wins, kills, healAmt, imprisons, tactical,
+// matches, revives, mvpCount, bestWinStreak, charWins), plus peak rank tier
+// and friend count. Nothing new to track stat-wise — this just reads what's
+// already there. Only one skin + one theme can be equipped at a time.
+// Backed by the same Supabase project — see grimoire_cosmetics_setup.sql for
+// the one-time database setup (adds a single additive player_cosmetics
+// table + 5 RPC functions; nothing existing is touched).
+// ============================================================================
+const CARD_SKIN_DEFS = [
+    { id: 'classic_ink', name: 'Classic Ink', cssClass: '', always: true, desc: 'The default finish. Always unlocked.' },
+    { id: 'crimson_ledger', name: 'Crimson Ledger', cssClass: 'card-skin-crimsonledger', unlock: { type: 'stat', stat: 'wins', goal: 10 }, desc: 'Deep red and gold. Win 10 matches.' },
+    { id: 'ashwake', name: 'Ashwake', cssClass: 'card-skin-ashwake', unlock: { type: 'rankTier', tierIndex: 3 }, desc: `Grey and ember. Reach ${RANK_TIERS[3].name} rank.` },
+    { id: 'void_static', name: 'Void Static', cssClass: 'card-skin-voidstatic', unlock: { type: 'stat', stat: 'bestWinStreak', goal: 3 }, desc: 'Violet/cyan glitch border. Win 3 matches in a row.' },
+    { id: 'gilded_verdict', name: 'Gilded Verdict', cssClass: 'card-skin-gildedverdict', unlock: { type: 'rankTier', tierIndex: RANK_TIERS.length - 1 }, desc: `Gold and cream prestige finish. Reach ${RANK_TIERS[RANK_TIERS.length - 1].name}, the top rank.` },
+    { id: 'bloodbane_sigil', name: 'Bloodbane Sigil', cssClass: 'card-skin-bloodbanesigil', unlock: { type: 'categoryWins', category: 'Bloodbane', goal: 10 }, desc: 'Black and thorned red. Win 10 matches with a Bloodbane on your squad.' },
+    { id: 'bloodborne_circuit', name: 'Bloodborne Circuit', cssClass: 'card-skin-bloodbornecircuit', unlock: { type: 'categoryWins', category: 'Bloodborne', goal: 10 }, desc: 'Steel/teal circuit-line border. Win 10 matches with a Bloodborne on your squad.' },
+    { id: 'sacred_ember', name: 'Sacred Ember', cssClass: 'card-skin-sacredember', unlock: { type: 'categoryWins', category: 'Heroic', goal: 10 }, desc: 'White-gold soft glow. Win 10 matches with a Heroic on your squad.' },
+    { id: 'widows_ink', name: "Widow's Ink", cssClass: 'card-skin-widowsink', unlock: { type: 'stat', stat: 'mvpCount', goal: 10 }, desc: 'Deep purple/black with silk trim. Earn Match MVP 10 times.' },
+    { id: 'executioners_mark', name: "Executioner's Mark", cssClass: 'card-skin-executionersmark', unlock: { type: 'stat', stat: 'kills', goal: 100 }, desc: 'Black and blood-orange, jagged edge. Land 100 kills.' }
+];
+
+const BOARD_THEME_DEFS = [
+    { id: 'classic_grimoire', name: 'Classic Grimoire', cssClass: '', always: true, desc: 'The default board. Always unlocked.' },
+    { id: 'blood_moon', name: 'Blood Moon', cssClass: 'board-theme-bloodmoon', unlock: { type: 'rankTier', tierIndex: 2 }, desc: `Reach ${RANK_TIERS[2].name} rank.` },
+    { id: 'obsidian_rift', name: 'Obsidian Rift', cssClass: 'board-theme-obsidianrift', unlock: { type: 'stat', stat: 'imprisons', goal: 30 }, desc: 'Imprison 30 enemies.' },
+    { id: 'parchment_noir', name: 'Parchment Noir', cssClass: 'board-theme-parchmentnoir', unlock: { type: 'stat', stat: 'matches', goal: 75 }, desc: 'A veteran unlock. Play 75 matches.' },
+    { id: 'verdant_hex', name: 'Verdant Hex', cssClass: 'board-theme-verdanthex', unlock: { type: 'stat', stat: 'healAmt', goal: 150 }, desc: 'Heal 150 total hex.' },
+    { id: 'static_bloom', name: 'Static Bloom', cssClass: 'board-theme-staticbloom', unlock: { type: 'stat', stat: 'tactical', goal: 120 }, desc: 'Make 120 tactical plays.' },
+    { id: 'ashen_vigil', name: 'Ashen Vigil', cssClass: 'board-theme-ashenvigil', unlock: { type: 'stat', stat: 'revives', goal: 10 }, desc: 'Revive 10 allies.' },
+    { id: 'frostbound_ledger', name: 'Frostbound Ledger', cssClass: 'board-theme-frostboundledger', unlock: { type: 'rankTier', tierIndex: 1 }, desc: `Reach ${RANK_TIERS[1].name} rank.` },
+    { id: 'neon_underworld', name: 'Neon Underworld', cssClass: 'board-theme-neonunderworld', unlock: { type: 'friends', goal: 5 }, desc: 'Add 5 friends.' },
+    { id: 'aurum_sanctum', name: 'Aurum Sanctum', cssClass: 'board-theme-aurumsanctum', unlock: { type: 'rankTier', tierIndex: RANK_TIERS.length - 1 }, desc: `Reach ${RANK_TIERS[RANK_TIERS.length - 1].name}, the top rank.` }
+];
+
+// Total career wins across every character in a given CARD_POOL category
+// (Bloodbane / Bloodborne / Heroic), read from the same charWins map Titles
+// already use — so no separate per-category counter is needed server-side.
+function cosmeticCategoryWinCount(stats, category) {
+    if (!stats || !stats.charWins) return 0;
+    let total = 0;
+    CARD_POOL.filter(c => c.category === category).forEach(c => { total += stats.charWins[c.name] || 0; });
+    return total;
+}
+
+// ctx = { stats, peakTierIndex, friendsCount }
+function cosmeticIsMet(def, ctx) {
+    if (def.always) return true;
+    if (!ctx) return false;
+    const u = def.unlock;
+    switch (u.type) {
+        case 'stat': return ((ctx.stats && ctx.stats[u.stat]) || 0) >= u.goal;
+        case 'categoryWins': return cosmeticCategoryWinCount(ctx.stats, u.category) >= u.goal;
+        case 'rankTier': return (ctx.peakTierIndex || 0) >= u.tierIndex;
+        case 'friends': return (ctx.friendsCount || 0) >= u.goal;
+        default: return false;
+    }
+}
+function cosmeticCurrentProgress(def, ctx) {
+    if (!ctx) return 0;
+    const u = def.unlock;
+    if (!u) return 0;
+    switch (u.type) {
+        case 'stat': return (ctx.stats && ctx.stats[u.stat]) || 0;
+        case 'categoryWins': return cosmeticCategoryWinCount(ctx.stats, u.category);
+        case 'rankTier': return ctx.peakTierIndex || 0;
+        case 'friends': return ctx.friendsCount || 0;
+        default: return 0;
+    }
+}
+function cosmeticGoal(def) {
+    if (!def.unlock) return 1;
+    return def.unlock.type === 'rankTier' ? def.unlock.tierIndex : def.unlock.goal;
+}
+
+// Local in-memory cache of the logged-in player's cosmetics, refreshed on
+// login and after any equip/unlock action. Kept separate from
+// blProfileCosmetics (which reflects whatever profile is currently open in
+// the modal, self or otherwise) so gameplay rendering never waits on the
+// profile modal being opened.
+let blCosmetics = null; // { earnedSkins, equippedSkin, earnedThemes, equippedTheme, peakRankingPoints } | null
+let blProfileCosmetics = null; // cosmetics for whichever profile is open in the modal
+
+function blCosmeticSkinClass() {
+    if (!blCosmetics || !blCosmetics.equippedSkin) return '';
+    const def = CARD_SKIN_DEFS.find(s => s.id === blCosmetics.equippedSkin);
+    return def ? def.cssClass : '';
+}
+function blCosmeticThemeClass() {
+    if (!blCosmetics || !blCosmetics.equippedTheme) return '';
+    const def = BOARD_THEME_DEFS.find(t => t.id === blCosmetics.equippedTheme);
+    return def ? def.cssClass : '';
+}
+function applyEquippedBoardTheme() {
+    const gv = document.getElementById('gameView');
+    if (!gv) return;
+    BOARD_THEME_DEFS.forEach(t => { if (t.cssClass) gv.classList.remove(t.cssClass); });
+    const cls = blCosmeticThemeClass();
+    if (cls) gv.classList.add(cls);
+}
+
+async function blRefreshCosmetics() {
+    if (!blAccount) { blCosmetics = null; return; }
+    const result = await blCallAccountRpc('get_player_cosmetics', { p_username: blAccount.username });
+    if (result && result.ok) {
+        blCosmetics = {
+            earnedSkins: result.earned_skins || ['classic_ink'],
+            equippedSkin: result.equipped_skin || null,
+            earnedThemes: result.earned_themes || ['classic_grimoire'],
+            equippedTheme: result.equipped_theme || null,
+            peakRankingPoints: result.peak_ranking_points || 0
+        };
+    } else {
+        blCosmetics = { earnedSkins: ['classic_ink'], equippedSkin: null, earnedThemes: ['classic_grimoire'], equippedTheme: null, peakRankingPoints: 0 };
+    }
+    applyEquippedBoardTheme();
+}
+
+// Called after ranking refreshes so peak rank (used to unlock rank-tier
+// skins/themes) only ever moves up, even if ranking points later dip.
+async function blRecordCosmeticRankPeak() {
+    if (!blAccount || !blRanking) return;
+    await blCallAccountRpc('record_cosmetic_rank_peak', { p_username: blAccount.username, p_ranking_points: blRanking.points || 0 });
+}
+
+// Compares live stats (from the Titles RPC), peak rank, and friend count
+// against every skin/theme definition and grants anything newly met.
+async function checkAndGrantNewCosmetics(stats) {
+    if (!blAccount || !blCosmetics) return;
+    const ctx = {
+        stats: stats || {},
+        peakTierIndex: getTierForPoints(blCosmetics.peakRankingPoints || 0).index,
+        friendsCount: (blFriendsData.friends || []).length
+    };
+    const newSkins = CARD_SKIN_DEFS.filter(s => !s.always && !blCosmetics.earnedSkins.includes(s.id) && cosmeticIsMet(s, ctx));
+    const newThemes = BOARD_THEME_DEFS.filter(t => !t.always && !blCosmetics.earnedThemes.includes(t.id) && cosmeticIsMet(t, ctx));
+    if (newSkins.length === 0 && newThemes.length === 0) return;
+    const result = await blCallAccountRpc('grant_cosmetics', {
+        p_username: blAccount.username,
+        p_skin_ids: newSkins.map(s => s.id),
+        p_theme_ids: newThemes.map(t => t.id)
+    });
+    if (result && result.ok) {
+        newSkins.forEach(s => writeLog(`🎴 Card skin unlocked: ${s.name}`));
+        newThemes.forEach(t => writeLog(`🗺️ Board theme unlocked: ${t.name}`));
+        await blRefreshCosmetics();
+    }
+}
+
+// Only earned skins/themes can be equipped; passing null un-equips (falls
+// back to Classic Ink / Classic Grimoire).
+async function equipSkin(skinId) {
+    if (!blAccount || !blCosmetics) return;
+    if (skinId && !blCosmetics.earnedSkins.includes(skinId)) return;
+    const result = await blCallAccountRpc('equip_card_skin', { p_username: blAccount.username, p_skin_id: skinId || null });
+    if (result && result.ok) {
+        await blRefreshCosmetics();
+        if (blProfileTargetUsername) blLoadProfile(blProfileTargetUsername);
+    }
+}
+async function equipTheme(themeId) {
+    if (!blAccount || !blCosmetics) return;
+    if (themeId && !blCosmetics.earnedThemes.includes(themeId)) return;
+    const result = await blCallAccountRpc('equip_board_theme', { p_username: blAccount.username, p_theme_id: themeId || null });
+    if (result && result.ok) {
+        await blRefreshCosmetics();
+        if (blProfileTargetUsername) blLoadProfile(blProfileTargetUsername);
+    }
+}
+
+function renderProfileCosmetics() {
+    const view = document.getElementById('profileCosmeticsView');
+    if (!view) return;
+    if (!blProfileCosmetics) {
+        view.innerHTML = `<p class="guide-card-desc" style="text-align:center; padding:14px 0;">${blProfileIsSelf ? 'Log in to unlock skins & themes.' : 'No cosmetics yet.'}</p>`;
+        return;
+    }
+    const stats = blProfileCosmetics.stats || {};
+    const ctx = {
+        stats,
+        peakTierIndex: getTierForPoints(blProfileCosmetics.peakRankingPoints || 0).index,
+        friendsCount: blProfileIsSelf ? (blFriendsData.friends || []).length : (blProfileCosmetics.friendsCount || 0)
+    };
+    const earnedSkins = blProfileCosmetics.earnedSkins || ['classic_ink'];
+    const equippedSkin = blProfileCosmetics.equippedSkin || 'classic_ink';
+    const earnedThemes = blProfileCosmetics.earnedThemes || ['classic_grimoire'];
+    const equippedTheme = blProfileCosmetics.equippedTheme || 'classic_grimoire';
+
+    function row(def, isEarned, isEquipped, equipFn) {
+        const current = cosmeticCurrentProgress(def, ctx);
+        const goal = cosmeticGoal(def);
+        const pct = def.always ? 100 : Math.max(0, Math.min(100, Math.round(current / goal * 100)));
+        return `<div class="guide-card-entry title-entry${isEarned ? ' title-earned' : ' title-locked'}">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                <span class="guide-card-name">${isEarned ? '🎴' : '🔒'} ${def.name}</span>
+                ${blProfileIsSelf && isEarned ? `<button class="title-equip-btn${isEquipped ? ' title-equip-active' : ''}" onclick="${equipFn}('${isEquipped ? '' : def.id}')">${isEquipped ? 'Equipped' : 'Equip'}</button>` : ''}
+            </div>
+            <div class="guide-card-desc">${def.desc}</div>
+            ${!isEarned && !def.always ? `<div class="msum-bar-track" style="height:5px; margin-top:6px;"><div class="msum-bar-fill" style="width:${pct}%; background:#5a5f68;"></div></div><div style="font-size:9px; color:#5a5f68; margin-top:3px;">${Math.min(current, goal)} / ${goal}</div>` : ''}
+        </div>`;
+    }
+
+    const skinRows = CARD_SKIN_DEFS.map(s => row(s, earnedSkins.includes(s.id), equippedSkin === s.id, 'equipSkin')).join('');
+    const themeRows = BOARD_THEME_DEFS.map(t => row(t, earnedThemes.includes(t.id), equippedTheme === t.id, 'equipTheme')).join('');
+    view.innerHTML = `<div class="guide-section-label">Card Skins — ${earnedSkins.length} / ${CARD_SKIN_DEFS.length} Earned</div>${skinRows}`
+        + `<div class="guide-section-label">Board Themes — ${earnedThemes.length} / ${BOARD_THEME_DEFS.length} Earned</div>${themeRows}`;
+}
+
 // Called once per finished match (solo, vs-bot, or multiplayer alike — this
 // is account-bound lifetime progress, not tied to any one match mode) right
 // alongside recordMultiplayerMatchIfNeeded(). No-ops if nobody is logged in.
@@ -2593,6 +2883,7 @@ async function recordTitleProgressIfNeeded() {
         await blCallAccountRpc('grant_titles', { p_username: blAccount.username, p_title_ids: newlyEarned.map(t => t.id) });
         newlyEarned.forEach(t => writeLog(`🏅 Title earned: ${t.name}`));
     }
+    await checkAndGrantNewCosmetics(stats);
 }
 
 // Only earned titles can be equipped; passing null/empty un-equips.
@@ -2674,17 +2965,20 @@ function switchProfileTab(tab) {
     document.getElementById('profileTabInfoBtn').classList.toggle('guide-tab-active', tab === 'info');
     document.getElementById('profileTabHistoryBtn').classList.toggle('guide-tab-active', tab === 'history');
     document.getElementById('profileTabTitlesBtn').classList.toggle('guide-tab-active', tab === 'titles');
+    document.getElementById('profileTabCosmeticsBtn').classList.toggle('guide-tab-active', tab === 'cosmetics');
     document.getElementById('profileInfoView').style.display = tab === 'info' ? 'block' : 'none';
     document.getElementById('profileHistoryView').style.display = tab === 'history' ? 'block' : 'none';
     document.getElementById('profileTitlesView').style.display = tab === 'titles' ? 'block' : 'none';
+    document.getElementById('profileCosmeticsView').style.display = tab === 'cosmetics' ? 'block' : 'none';
 }
 
 async function blLoadProfile(username) {
-    const [profResult, historyResult, rankResult, titlesResult] = await Promise.all([
+    const [profResult, historyResult, rankResult, titlesResult, cosmeticsResult] = await Promise.all([
         blCallAccountRpc('get_player_profile', { p_username: username }),
         blCallAccountRpc('get_match_history', { p_username: username }),
         blCallAccountRpc('get_my_ranking', { p_username: username }),
-        blCallAccountRpc('get_player_titles', { p_username: username })
+        blCallAccountRpc('get_player_titles', { p_username: username }),
+        blCallAccountRpc('get_player_cosmetics', { p_username: username })
     ]);
     if (blProfileTargetUsername !== username) return; // navigated away before this resolved
     if (!profResult.ok) {
@@ -2695,6 +2989,14 @@ async function blLoadProfile(username) {
     blProfileMatches = (historyResult.ok && historyResult.matches) ? historyResult.matches : [];
     blProfileRanking = rankResult && rankResult.ok ? rankResult : null;
     blProfileTitles = titlesResult && titlesResult.ok ? titlesResult : null;
+    blProfileCosmetics = (cosmeticsResult && cosmeticsResult.ok) ? {
+        earnedSkins: cosmeticsResult.earned_skins || ['classic_ink'],
+        equippedSkin: cosmeticsResult.equipped_skin || null,
+        earnedThemes: cosmeticsResult.earned_themes || ['classic_grimoire'],
+        equippedTheme: cosmeticsResult.equipped_theme || null,
+        peakRankingPoints: cosmeticsResult.peak_ranking_points || 0,
+        stats: (blProfileTitles && blProfileTitles.stats) || {}
+    } : null;
     if (blProfileIsSelf) {
         blMyFavouriteCard = profResult.favourite_card || null;
         blRenderAccountFavBadge();
@@ -2706,6 +3008,7 @@ async function blLoadProfile(username) {
     renderProfileInfo();
     renderProfileHistory();
     renderProfileTitles();
+    renderProfileCosmetics();
 }
 
 function renderProfileInfo() {
@@ -3504,6 +3807,7 @@ function blRenderAccountUI() {
         blStartInvitePolling();
         blRefreshOwnFavBadge();
         blRefreshMyRanking();
+        blRefreshCosmetics();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
@@ -3512,6 +3816,8 @@ function blRenderAccountUI() {
         blMyFavouriteCard = null;
         blRanking = null;
         blProfileTitles = null;
+        blCosmetics = null;
+        applyEquippedBoardTheme();
         blRenderRankBadge();
     }
 }
@@ -8323,7 +8629,7 @@ function renderScene() {
         }
 
         p1Html += `
-            <div class="card ${isDead ? 'dead' : ''} ${card.imprisoned ? 'imprisoned' : ''} ${canTakeAction && !isLockedByCooldown && okMoves ? 'active-turn' : ''} ${isEligibleAlly ? 'valid-target' : ''}">
+            <div class="card ${blCosmeticSkinClass()} ${isDead ? 'dead' : ''} ${card.imprisoned ? 'imprisoned' : ''} ${canTakeAction && !isLockedByCooldown && okMoves ? 'active-turn' : ''} ${isEligibleAlly ? 'valid-target' : ''}">
                 <span class="cooldown-badge">${(card.cooldown === 'consecutive' && card.lastUsedRound && (gameState.roundCount - card.lastUsedRound < 2)) ? '🚫' : ''}${card.name==='Mecha'&&card.mechaCooldown>0?'⏳':''}${card.blockedCounter>0?'🔒':''}</span>
                 <div class="card-title${cardTitleClass(card.name)}">${card.name}</div>
                 <span class="card-tag">${card.tag}</span>
@@ -8338,6 +8644,7 @@ function renderScene() {
         `;
     });
     document.getElementById('p1Field').innerHTML = p1Html;
+    applyEquippedBoardTheme();
 
     let p2Html = '';
     gameState.p2.forEach(card => {
