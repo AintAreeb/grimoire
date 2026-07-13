@@ -4770,25 +4770,66 @@ function mpFindRandomOpponent() {
     const claimAction = mp.room.makeAction('claim');
     const sendClaim = claimAction.send;
 
+    // Unlike the in-match 'msg' channel, this handshake used to be a single
+    // fire-and-forget send with no retry. If the very first 'propose' or
+    // 'accept' packet got dropped (common right as a fresh WebRTC data
+    // channel opens), the two sides could end up permanently disagreeing
+    // about whether they were matched: one side (having sent, but never
+    // gotten an answering 'accept') stayed stuck "Searching...", while the
+    // other could complete its half of the handshake anyway. Each device
+    // then independently ran mpRunRandomizedSquadFlow and started its own
+    // local battle — exactly the "two different games, stuck on waiting
+    // forever" symptom: neither side was ever actually talking to the game
+    // the other one started.
+    //
+    // Fix: keep retrying 'propose' until we get a matching 'accept' back
+    // from that SAME peer, and track the match by peerId (not just a bare
+    // boolean) so a late duplicate 'propose' from our real match gets
+    // re-acked instead of bouncing a spurious 'reject' at them.
+    let matchedPeerId = null;
+    const proposeTimers = {};
+
+    const stopProposing = (peerId) => {
+        if (proposeTimers[peerId]) { clearInterval(proposeTimers[peerId]); delete proposeTimers[peerId]; }
+    };
+
     const tryClaim = (peerId) => {
-        if (mp.matched) return;
-        if (window.__trysteroSelfId < peerId) sendClaim({ t: 'propose' }, peerId);
+        if (matchedPeerId) return;
+        if (window.__trysteroSelfId < peerId) {
+            sendClaim({ t: 'propose' }, peerId);
+            if (!proposeTimers[peerId]) {
+                proposeTimers[peerId] = setInterval(() => {
+                    if (matchedPeerId || mp.isMultiplayer === false) { stopProposing(peerId); return; }
+                    sendClaim({ t: 'propose' }, peerId);
+                }, 1500);
+            }
+        }
     };
 
     claimAction.onMessage = (data, peerId) => {
         if (mp.isMultiplayer === false) return; // cancelled
         if (data.t === 'propose') {
-            if (!mp.matched) {
+            if (!matchedPeerId) {
+                matchedPeerId = peerId;
                 mp.matched = true;
                 sendClaim({ t: 'accept' }, peerId);
                 mpFinalizeMatch(peerId);
+            } else if (matchedPeerId === peerId) {
+                // Our own propose crossed with theirs, or they never heard
+                // our first accept — re-send it rather than rejecting our
+                // actual match.
+                sendClaim({ t: 'accept' }, peerId);
             } else {
                 sendClaim({ t: 'reject' }, peerId);
             }
         } else if (data.t === 'accept') {
-            if (!mp.matched) {
+            if (!matchedPeerId) {
+                matchedPeerId = peerId;
                 mp.matched = true;
+                stopProposing(peerId);
                 mpFinalizeMatch(peerId);
+            } else if (matchedPeerId === peerId) {
+                stopProposing(peerId); // redundant accept for the match we already made
             }
         }
         // 'reject' -> stay in the lobby, we'll try the next peer who joins
