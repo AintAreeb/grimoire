@@ -1355,6 +1355,7 @@
             </div>
 
             <div id="mpConnectButtons" style="display:flex; flex-direction:column; gap:8px; max-width:260px; margin:0 auto;">
+                <button class="start-btn" style="width:100%;" onclick="mpFindRankedMatch()">🏆 RANKED MATCH</button>
                 <button class="btn" style="width:100%; padding:10px; font-size:10px;" onclick="mpCreateRoom()">CREATE ROOM</button>
                 <button class="btn" style="width:100%; padding:10px; font-size:10px;" onclick="mpShowJoinInput()">JOIN ROOM</button>
             </div>
@@ -4301,6 +4302,7 @@ const MP_CONFIG = {
 
 let mp = {
     isMultiplayer: false,
+    isRanked: false,     // true when this match came from the RANKED queue, not a room code
     room: null,
     roomName: null,     // the actual trystero room name, saved so a refresh can rejoin it
     sendMsg: null,
@@ -4590,12 +4592,20 @@ function mpTeardownConnection() {
         blCallAccountRpc('cancel_match_invite', { p_invite_id: blLastSentInviteId });
         blLastSentInviteId = null;
     }
-    mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby', roomAttempt: 0, cachedSquadsPayload: null };
+    // Stop polling and drop our row from the ranked queue (fire-and-forget —
+    // nothing in the UI needs to wait on this) so a cancelled search doesn't
+    // leave a stale "searching" entry that could get matched to someone
+    // after we've already walked away.
+    mpRankedStopPolling();
+    if (mp.isRanked && blAccount) {
+        blCallAccountRpc('ranked_leave_queue', { p_username: blAccount.username });
+    }
+    mp = { isMultiplayer: false, isRanked: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby', roomAttempt: 0, cachedSquadsPayload: null };
     const codeEl = document.getElementById('mpRoomCodeDisplay');
     if (codeEl) codeEl.innerText = '';
     mpLog('');
-    // mpFindRandomOpponent() hides these while searching — always restore
-    // them on cancel/teardown, whichever flow (random or room-code) was active.
+    // mpFindRankedMatch() hides these while searching — always restore them
+    // on cancel/teardown, whichever flow (ranked or room-code) was active.
     const connectButtons = document.getElementById('mpConnectButtons');
     if (connectButtons) connectButtons.style.display = 'flex';
     const joinInputRow = document.getElementById('mpJoinInputRow');
@@ -4746,6 +4756,102 @@ function mpConnectDirect(code) {
         mpSaveSession();
         mpBeginSquadPhase();
     };
+}
+
+// ---- Ranked matchmaking (Supabase-backed queue, no room code needed) -----
+// Unlike the old "broadcast into a public lobby room and race a WebRTC
+// handshake to agree on a match" approach, pairing here is decided
+// authoritatively by the Supabase backend (see grimoire_ranked_setup.sql).
+// Once two players are paired, we just reuse the same room-join code path
+// as Create/Join Room (mp.room = trysteroJoinRoom(...) + TURN fallback) to
+// actually connect — the part that already works reliably. That split is
+// the whole fix: matchmaking (fragile point before) is now a DB row, and
+// connecting (fragile point before) is now identical to code you already
+// trust.
+let rankedPollTimer = null;
+let rankedSearchStartedAt = null;
+
+function mpFindRankedMatch() {
+    if (!mpReady()) return;
+    if (!blAccount) { mpLog('Log in to play Ranked — Ritual Points are tracked per account.'); return; }
+    mp.isMultiplayer = true;
+    mp.isRanked = true;
+    clearSoloSnapshot();
+    mpLog('Searching for a ranked opponent...');
+    document.getElementById('mpConnectButtons').style.display = 'none';
+    document.getElementById('mpJoinInputRow').style.display = 'none';
+    rankedSearchStartedAt = Date.now();
+
+    blCallAccountRpc('ranked_join_queue', { p_username: blAccount.username, p_squad_mode: mp.squadMode })
+        .then(result => {
+            if (!mp.isRanked) return; // cancelled while the request was in flight
+            if (!result || !result.ok) {
+                mpLog('Could not reach the ranked queue — check your connection.');
+                mpTeardownConnection();
+                return;
+            }
+            if (result.status === 'matched') {
+                mpRankedConnectToRoom(result.room_name, result.opponent_username);
+            } else {
+                mpRankedStartPolling();
+            }
+        });
+}
+
+// Polls every 2s while we're the side still waiting. ranked_check_match
+// doesn't just read our row — it re-runs the same pairing attempt the join
+// call made, so even the rare case where two players queue at the exact
+// same instant and miss each other on the first pass gets caught on the
+// very next poll instead of leaving both sides stuck.
+function mpRankedStartPolling() {
+    mpRankedStopPolling();
+    rankedPollTimer = setInterval(() => {
+        if (!mp.isMultiplayer || !mp.isRanked) { mpRankedStopPolling(); return; }
+        const elapsed = Math.floor((Date.now() - rankedSearchStartedAt) / 1000);
+        mpLog(`Searching for a ranked opponent... (${elapsed}s)`);
+        blCallAccountRpc('ranked_check_match', { p_username: blAccount.username, p_squad_mode: mp.squadMode })
+            .then(result => {
+                if (!mp.isMultiplayer || !mp.isRanked) return; // cancelled while in flight
+                if (result && result.ok && result.status === 'matched') {
+                    mpRankedStopPolling();
+                    mpRankedConnectToRoom(result.room_name, result.opponent_username);
+                }
+                // status 'searching' or a transient error -> just try again next tick
+            });
+    }, 2000);
+}
+
+function mpRankedStopPolling() {
+    if (rankedPollTimer) { clearInterval(rankedPollTimer); rankedPollTimer = null; }
+}
+
+function mpRankedConnectToRoom(roomName, opponentUsername) {
+    mp.opponentUsername = opponentUsername || null;
+    mp.roomName = roomName;
+    mpLog('Ranked opponent found! Connecting...');
+    mp.room = window.__trysteroJoinRoom(MP_CONFIG, roomName);
+    const reliable = mpWireReliableRoom(mp.room);
+    mp.reliable = reliable;
+    mp.sendMsg = reliable.send;
+    reliable.msgAction.onMessage = (data, peerId) => mpHandleMessage(data, peerId);
+    mp.room.onPeerJoin = peerId => {
+        mp.peerId = peerId;
+        mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
+        reliable.onPeerConnected();
+        attachVoiceToRoom(mp.room);
+        mpLog('Opponent connected!');
+        mpSaveSession();
+        mpBeginSquadPhase();
+    };
+    // The matched opponent's own client is responsible for joining this
+    // same room; if their tab closed or their network died between being
+    // matched and connecting, don't hang forever — surface it so the
+    // player can cancel and search again instead of staring at "Connecting..."
+    setTimeout(() => {
+        if (mp.isRanked && mp.isMultiplayer && !mp.peerId) {
+            mpLog('Opponent never connected — hit Cancel and search again.');
+        }
+    }, 20000);
 }
 
 // ---- Squad phase: routes to draft or randomized-sync ---------------------
