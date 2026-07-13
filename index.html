@@ -569,6 +569,19 @@
             filter: drop-shadow(0 0 3px rgba(0, 255, 120, 0.55));
         }
 
+        /* The "BLOCKED (n)" label shown when a card's attack option is
+           hidden (e.g. by Jinn). Kept much smaller than before so it reads
+           as a small status tag rather than competing with the card name
+           and other badges for space. */
+        .blocked-badge {
+            display: inline-block;
+            font-size: 5px;
+            font-weight: 600;
+            color: #ff5555;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
         /* Landscape / horizontal mode: 10 equal columns per row */
         @media (orientation: landscape) {
             .squad {
@@ -4009,7 +4022,7 @@ function toggleCommsMenu() {
 function sendChatPreset(msg) {
     writeLog(`🗨️ You: ${msg}`);
     if (mp.isMultiplayer && mp.sendMsg) {
-        mp.sendMsg({ type: 'chatMsg', text: msg });
+        mp.sendMsg({ type: 'chatMsg', text: msg }, mp.peerId);
     }
     closeChatModal();
 }
@@ -4805,7 +4818,7 @@ function mpBeginSquadPhase() {
     // Tell the opponent who I am (if logged in) so a completed match can be
     // recorded to both accounts' match history under each other's real
     // username instead of just "Opponent".
-    if (blAccount && mp.sendMsg) mp.sendMsg({ type: 'identify', payload: { username: blAccount.username } });
+    if (blAccount && mp.sendMsg) mp.sendMsg({ type: 'identify', payload: { username: blAccount.username } }, mp.peerId);
     if (mp.squadMode === 'draft') {
         mpStartDraft();
     } else {
@@ -4821,24 +4834,43 @@ function mpRunRandomizedSquadFlow() {
         // squad) is what I built as p2, and vice versa — so both devices
         // consistently render "p1 = my squad" regardless of which absolute
         // side each player actually is.
+        // IMPORTANT: pass mp.peerId explicitly here (like every other mp.sendMsg
+        // call in this file does). Without a target peerId, mpWireReliableRoom
+        // only sends this once its internal 'connected' flag flips true, which
+        // itself only happens when this brand-new private room's onPeerJoin
+        // fires — and if that event is ever missed (the two sides can already
+        // share an underlying connection from the lobby room, so a fresh
+        // peer-join doesn't always fire for the new room), the message sat in
+        // the outbox forever with nothing to retry it. That was the root
+        // cause behind reports of one device already showing "opponent's
+        // move" while the other was stuck forever on "waiting for opponent to
+        // roll squads". Passing peerId sends it immediately over the raw
+        // channel AND registers it for the normal seq/ack retry loop.
         mp.sendMsg({ type: 'squadsReady', payload: mpSanitizeForWire({
             p1Squad: built.p2Squad, p2Squad: built.p1Squad,
             p1Tier: built.p2Tier, p2Tier: built.p1Tier,
             unusedBloodbanes: built.unusedBloodbanes,
             unusedBloodbornes: built.unusedBloodbornes
-        })});
+        })}, mp.peerId);
         mpStartBattleFromPayload(built);
     } else {
         mpLog('Waiting for opponent to roll squads...');
         document.getElementById('setupView').style.display = 'block';
         document.getElementById('mpPanel').style.display = 'block';
         // Belt-and-suspenders: mpWireReliableRoom now retries a dropped
-        // 'squadsReady' message on its own, but just in case, also check in
-        // after a few seconds and ask directly — this recovers even from
-        // conditions the transport-level retry can't (e.g. this device was
-        // asleep/backgrounded through the whole retry window).
-        setTimeout(() => {
-            if (mp.phase === 'lobby' && mp.sendMsg) mp.sendMsg({ type: 'resyncRequest' }, mp.peerId);
+        // 'squadsReady' message on its own, but just in case, also keep
+        // checking in directly every few seconds until we actually leave the
+        // lobby phase — a single one-shot check could itself get lost (e.g.
+        // this device was asleep/backgrounded right when it fired), leaving
+        // the screen stuck forever with no further attempt. Repeating this
+        // (capped, so it can't run forever) means any single lost attempt
+        // just gets retried a few seconds later instead of being a dead end.
+        let resyncAttempts = 0;
+        const resyncInterval = setInterval(() => {
+            if (mp.phase !== 'lobby') { clearInterval(resyncInterval); return; }
+            resyncAttempts++;
+            if (resyncAttempts > 12 || !mp.sendMsg) { clearInterval(resyncInterval); return; } // ~60s cap
+            mp.sendMsg({ type: 'resyncRequest' }, mp.peerId);
         }, 5000);
     }
 }
@@ -4939,7 +4971,7 @@ function mpRenderDraft() {
 function mpMakeDraftPick(cardName) {
     if (!mp.draft || mp.draft.turnSide !== mp.mySide || mp.draft.picksLeftInTurn <= 0) return;
     mpApplyDraftPick(cardName, mp.mySide);
-    mp.sendMsg({ type: 'draftPick', cardName });
+    mp.sendMsg({ type: 'draftPick', cardName }, mp.peerId);
 }
 
 function mpApplyDraftPick(cardName, side) {
@@ -5225,7 +5257,7 @@ function mpHandleMessage(data, peerId) {
             renderScene();
             blVibrate([100, 80, 100]); // attention: opponent wants a takeback
         } else {
-            mp.sendMsg({ type: 'undoResponse', accepted: false });
+            mp.sendMsg({ type: 'undoResponse', accepted: false }, peerId);
         }
     } else if (data.type === 'undoResponse') {
         undoState.awaitingResponse = false;
@@ -5233,7 +5265,7 @@ function mpHandleMessage(data, peerId) {
             applyUndoLocally();
             writeLog('↩️ Opponent accepted — your last move was undone.');
             blVibrate(60);
-            mp.sendMsg({ type: 'undoApplied', payload: mpSanitizeForWire(mpBuildUndoAppliedPayload()) });
+            mp.sendMsg({ type: 'undoApplied', payload: mpSanitizeForWire(mpBuildUndoAppliedPayload()) }, peerId);
         } else {
             writeLog('❌ Opponent declined your undo request.');
             renderUndoUI();
@@ -6825,7 +6857,7 @@ function finalizeActiveTurn(actingCardId) {
         // reflects the real ending board instead of freezing stale.
         if (mp.isMultiplayer) {
             mpSaveSnapshot();
-            mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) });
+            mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) }, mp.peerId);
         }
         return;
     }
@@ -6840,7 +6872,7 @@ function finalizeActiveTurn(actingCardId) {
         // getting stuck with both screens reading "opponent's turn".
         mpSaveSnapshot();
         renderScene();
-        mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) });
+        mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) }, mp.peerId);
         return;
     }
     if (gameState.isLocalMultiplayer) {
@@ -6895,7 +6927,7 @@ function requestUndo() {
         // out before they act — once it's my turn again, they've moved.
         if (gameState.currentTurn !== 2) return;
         undoState.awaitingResponse = true;
-        mp.sendMsg({ type: 'undoRequest' });
+        mp.sendMsg({ type: 'undoRequest' }, mp.peerId);
         writeLog('↩️ Undo request sent — waiting for your opponent to respond.');
         renderUndoUI();
     } else {
@@ -6910,7 +6942,7 @@ function requestUndo() {
 function cancelUndoRequest() {
     if (!undoState.awaitingResponse) return;
     undoState.awaitingResponse = false;
-    if (mp.sendMsg) mp.sendMsg({ type: 'undoCancel' });
+    if (mp.sendMsg) mp.sendMsg({ type: 'undoCancel' }, mp.peerId);
     writeLog('You cancelled your undo request.');
     renderUndoUI();
 }
@@ -6964,11 +6996,11 @@ function respondToUndoRequest(accepted) {
         undoState.waitingForSync = true;
         writeLog('↩️ You accepted the undo request — syncing the board...');
         renderScene();
-        mp.sendMsg({ type: 'undoResponse', accepted: true });
+        mp.sendMsg({ type: 'undoResponse', accepted: true }, mp.peerId);
         // The actual reverted board arrives next as 'undoApplied' (see
         // mpHandleMessage) — nothing more to do locally until then.
     } else {
-        mp.sendMsg({ type: 'undoResponse', accepted: false });
+        mp.sendMsg({ type: 'undoResponse', accepted: false }, mp.peerId);
         writeLog('❌ You declined the undo request.');
         renderScene();
         if (gameState.currentTurn === 1 && !gameState.isGameOver) startMoveTimer(1);
@@ -7034,7 +7066,7 @@ function getBotCandidatePool(actor, enemies) {
     if (actor.name === 'Knight') return harmful.filter(c => !isHarmMoveWasted(c));
     if (actor.name === 'Witch') return harmful.filter(c => !isWitchMoveWasted(c));
     if (actor.name === 'Dictator') return harmful.filter(c => !isImprisonMoveWasted(c));
-    if (actor.name === 'Lawyer') return harmful.filter(c => c.hasActivity && !isImprisonMoveWasted(c));
+    if (actor.name === 'Lawyer') return harmful.filter(c => (c.tag === 'Criminal' || c.tag === 'Law & Order') && c.hasActivity && !isImprisonMoveWasted(c));
     return harmful;
 }
 
@@ -7051,16 +7083,34 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
     let copyExcluded = isBartenderCopyExcludedActor(aiActor);
 
     if (roleName === 'Killer') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        // enemyPool falls back to the generic "harmful" list here (getBotCandidatePool
+        // only special-cases a role when actor.name literally equals it, which is never
+        // true for a mimic), so each role below re-applies its own real restriction —
+        // the same fix already done for Wraith — rather than silently using the
+        // unrestricted pool.
+        let pool = enemyPool.filter(c => !isHarmMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
         applyShieldedExecution(t);
         writeLog(`🎯 ${verbPrefix} executes your ${t.name}!`);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
-    if (roleName === 'Dictator' || roleName === 'Lawyer') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
+    if (roleName === 'Dictator') {
+        let pool = enemyPool.filter(c => !isImprisonMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
+        applyShieldedImprison(t);
+        writeLog(`⛓️ ${verbPrefix} imprisons your ${t.name}!`);
+        if (!copyExcluded) gameState.p2LastMoveRole = roleName;
+        return true;
+    }
+    if (roleName === 'Lawyer') {
+        // Real Lawyer can only imprison Criminal/Law & Order tags that have
+        // already acted this round — same rule the player is held to.
+        let pool = enemyPool.filter(c => (c.tag === 'Criminal' || c.tag === 'Law & Order') && c.hasActivity && !isImprisonMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
         applyShieldedImprison(t);
         writeLog(`⛓️ ${verbPrefix} imprisons your ${t.name}!`);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
@@ -7076,8 +7126,9 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         return true;
     }
     if (roleName === 'Witch') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        let pool = enemyPool.filter(c => !isWitchMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
         t.poisoned = true;
         applyShieldedDamage(t, 1);
         writeLog(`🔮 ${verbPrefix} poisons your ${t.name}!`);
@@ -7086,8 +7137,10 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         return true;
     }
     if (roleName === 'Cop') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        // Real Cop can only strike Criminal/Law & Order tags.
+        let pool = enemyPool.filter(c => (c.tag === 'Criminal' || c.tag === 'Law & Order') && !isHarmMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
         let dmg = t.hasActivity ? 2 : 1;
         applyShieldedDamage(t, dmg);
         writeLog(`👮 ${verbPrefix} strikes your ${t.name} for ${dmg} damage!`);
@@ -7095,7 +7148,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         return true;
     }
     if (roleName === 'Spy') {
-        let pool = enemyPool.filter(c => c.name !== 'Spy');
+        let pool = enemyPool.filter(c => c.name !== 'Spy' && !isHarmMoveWasted(c));
         if (pool.length === 0) return false;
         let t = pickBotTarget(pool, gameState.difficulty);
         applyShieldedDamage(t, 1);
@@ -7104,16 +7157,22 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         return true;
     }
     if (roleName === 'Knight') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        let pool = enemyPool.filter(c => !isHarmMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
         if (t.name === 'Spy') applyShieldedExecution(t); else applyShieldedDamage(t, 1);
         writeLog(`⚔️ ${verbPrefix} strikes your ${t.name}!`);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
         return true;
     }
     if (roleName === 'Robber') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
+        // Mimicked Robber never gets the hex-based "execute" variant (the
+        // player's own Actor/Dementor/Bartender-as-Robber always resolves as
+        // robber_siphon too), so this only needs the normal siphon's
+        // Criminal-tag exclusion, same as robber_siphon's eligibility rule.
+        let pool = enemyPool.filter(c => c.tag !== 'Criminal' && !isHarmMoveWasted(c));
+        if (pool.length === 0) return false;
+        let t = pickBotTarget(pool, gameState.difficulty);
         applyShieldedDamage(t, 1);
         writeLog(`💰 ${verbPrefix} siphons 1 Hex from your ${t.name}!`);
         if (!copyExcluded) gameState.p2LastMoveRole = roleName;
@@ -7139,7 +7198,7 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         return true;
     }
     if (roleName === 'Hood') {
-        let hoodPool = enemyPool.filter(c => c.name !== 'Spy' || aiActor.hex === 0);
+        let hoodPool = enemyPool.filter(c => (c.name !== 'Spy' || aiActor.hex === 0) && !isHarmMoveWasted(c));
         if (hoodPool.length === 0) return false;
         let t = pickBotTarget(hoodPool, gameState.difficulty);
         let isExecute = (t.name === 'Spy' && aiActor.hex === 0);
@@ -7159,10 +7218,18 @@ function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
         return true;
     }
     if (roleName === 'Ninja') {
-        if (enemyPool.length === 0) return false;
-        let t = pickBotTarget(enemyPool, gameState.difficulty);
-        applyShieldedDamage(t, 1);
-        writeLog(`🥷 ${verbPrefix} strikes your ${t.name}!`);
+        // Real Ninja can't touch Spy at all except as a last-stand execute
+        // (mirroring Hood's own hex===0 exception above), and is subject to
+        // the same wasted-move filtering as every other attacker.
+        let ninjaPool = enemyPool.filter(c => (c.name !== 'Spy' || aiActor.hex === 0) && !isHarmMoveWasted(c));
+        if (ninjaPool.length === 0) return false;
+        let t = pickBotTarget(ninjaPool, gameState.difficulty);
+        let isExecute = (t.name === 'Spy' && aiActor.hex === 0);
+        if (isExecute) applyShieldedExecution(t);
+        else applyShieldedDamage(t, 1);
+        writeLog(isExecute
+            ? `🥷 ${verbPrefix}'s last stand instantly assassinates ${t.name}!`
+            : `🥷 ${verbPrefix} strikes your ${t.name}!`);
         if (t.hex === 0 && !aiActor.hasKilled) {
             aiActor.hex += 2;
             aiActor.maxHex = Math.max(aiActor.maxHex, aiActor.hex);
@@ -7771,7 +7838,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         } else if (pName === 'Hood') {
                             if (isSameTarget) applyShieldedDamage(first, 2);
                             else { applyShieldedDamage(first, 1); applyShieldedDamage(second, 1); }
-                            let healTarget = gameState.p2.filter(c => c.hex > 0 && !c.imprisoned).sort((a, b) => a.hex - b.hex)[0];
+                            let healTarget = gameState.p2.filter(c => c.id !== aiActor.id && c.hex > 0 && !c.imprisoned).sort((a, b) => a.hex - b.hex)[0];
                             if (healTarget) { healTarget.hex = Math.min(healTarget.maxHex === Infinity ? 99 : healTarget.maxHex, healTarget.hex + 2); queueRecap('heal', healTarget); }
                             writeLog(`🤖 Bot Mecha+Hood Fusion: struck your ${first.name}${isSameTarget ? '' : ' and ' + second.name} and channeled +2 Hex to ${healTarget ? healTarget.name : 'a squadmate'}!`);
                         } else if (pName === 'Killer') {
@@ -8196,7 +8263,7 @@ function renderScene() {
                 <div class="card-title${cardTitleClass(card.name)}">${card.name}</div>
                 <span class="card-tag">${card.tag}</span>
                 ${card.poisoned ? `<span class="poison-badge">☣️ POISON</span>` : ''}
-                ${card.blockedCounter > 0 ? `<span style="font-size:8px; color:#ff3333;">BLOCKED (${card.blockedCounter-1})</span><br>` : ''}
+                ${card.blockedCounter > 0 ? `<span class="blocked-badge">BLOCKED (${card.blockedCounter-1})</span><br>` : ''}
                 ${gameState.p1KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
                 <div class="hearts">${heartsDisplay}</div>
                 ${doctorCleanseBtn}
@@ -8312,7 +8379,7 @@ function renderScene() {
                 <div class="card-title${cardTitleClass(card.name)}">${card.name}</div>
                 <span class="card-tag">${card.tag}</span>
                 ${card.poisoned ? `<span class="poison-badge">☣️ POISON</span>` : ''}
-                ${card.blockedCounter > 0 ? `<span style="font-size:8px; color:#ff3333;">BLOCKED (${card.blockedCounter-1})</span><br>` : ''}
+                ${card.blockedCounter > 0 ? `<span class="blocked-badge">BLOCKED (${card.blockedCounter-1})</span><br>` : ''}
                 ${gameState.p2KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
                 <div class="hearts">${card.name === 'Spy' && !isDead ? '⬡ ∞' : (isDead ? '☠️ DEAD' : '⬡'.repeat(card.hex))}</div>
                 ${isEligibleEnemy ? `<button class="btn target-btn" onclick="processSelectedTarget('${card.id}')">CHOOSE</button>` : ''}
