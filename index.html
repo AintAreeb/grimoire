@@ -4591,7 +4591,7 @@ function mpTeardownConnection() {
         blCallAccountRpc('cancel_match_invite', { p_invite_id: blLastSentInviteId });
         blLastSentInviteId = null;
     }
-    mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby' };
+    mp = { isMultiplayer: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby', roomAttempt: 0, cachedSquadsPayload: null };
     const codeEl = document.getElementById('mpRoomCodeDisplay');
     if (codeEl) codeEl.innerText = '';
     mpLog('');
@@ -4807,52 +4807,70 @@ function mpDeriveMatchRoomName(peerId, attempt) {
     return attempt > 0 ? base + '-r' + attempt : base;
 }
 
-// Joins (or rejoins) the private 1:1 room used for the rest of the match and
-// wires up the reliable message channel + handlers. Tears down any previous
-// room/channel first, so this is safe to call again from
-// mpEscalateMatchConnection without leaking old retry timers.
-function mpOpenMatchChannel(peerId, roomName) {
+// Joins (or rejoins) the room used for match communication and wires up the
+// reliable message channel + handlers. Tears down any previous channel
+// first, so this is safe to call again from mpEscalateMatchConnection
+// without leaking old retry timers.
+//
+// opts.reuseRoom: if passed an already-open room (instead of joining fresh),
+// we keep using that connection rather than leaving it and joining a new
+// room by name. This matters for the initial hop out of the public lobby:
+// the claim/accept handshake that just got us here already proved this
+// exact peer connection works, whereas asking trystero to join a brand-new
+// "match-" room can silently never finish its own join handshake when the
+// two peers already share a connection under the hood — trystero doesn't
+// always re-fire onPeerJoin in that case. That mismatch was the real cause
+// behind one side hanging forever on "waiting for opponent to roll squads"
+// while the other had already moved on into battle.
+function mpOpenMatchChannel(peerId, roomName, opts = {}) {
     if (mp.reliable) { try { mp.reliable.dispose(); } catch (e) {} }
-    if (mp.room) { try { mp.room.leave(); } catch (e) {} }
+    if (opts.reuseRoom) {
+        mp.room = opts.reuseRoom;
+    } else {
+        if (mp.room) { try { mp.room.leave(); } catch (e) {} }
+        mp.room = window.__trysteroJoinRoom(MP_CONFIG, roomName);
+    }
     mp.peerId = peerId;
-    mp.roomName = roomName;
-    mp.room = window.__trysteroJoinRoom(MP_CONFIG, roomName);
+    mp.roomName = roomName; // still recorded even when reusing — see mpAttemptReconnectOnLoad
     const reliable = mpWireReliableRoom(mp.room);
     mp.reliable = reliable;
     mp.sendMsg = reliable.send;
     reliable.msgAction.onMessage = (data, pid) => mpHandleMessage(data, pid);
-    // Both sides call mpBeginSquadPhase() right after this returns (draft/squad
-    // setup itself is fully deterministic and needs no round-trip), but the
-    // actual private data channel to the peer may still be mid-handshake at
-    // that moment. mpWireReliableRoom queues anything sent before this fires,
-    // so the first draft pick / squad payload no longer gets lost in transit.
     mp.room.onPeerJoin = pid => {
         mp.peerId = pid;
         reliable.onPeerConnected();
         attachVoiceToRoom(mp.room);
     };
+    // Reused rooms are already connected to this peer by definition (we just
+    // exchanged claim/accept over it) — mpWireReliableRoom's own getPeers()
+    // check at creation time already catches this, but flushing explicitly
+    // here means we don't depend on that race going our way.
+    if (opts.reuseRoom) reliable.onPeerConnected();
 }
 
 function mpFinalizeMatch(peerId) {
     mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
     mp.roomAttempt = 0;
     mpLog('Opponent found! Connecting...');
-    mpOpenMatchChannel(peerId, mpDeriveMatchRoomName(peerId, 0));
+    // Keep talking over the lobby room we're already connected through
+    // (see mpOpenMatchChannel's comment above) instead of hopping rooms.
+    // We still compute and remember a private room name purely so a page
+    // refresh has somewhere stable to reconnect to later — a fresh page
+    // load is a genuinely new connection, so the "no join event fires"
+    // ambiguity that affects a live, no-refresh room-hop doesn't apply there.
+    mpOpenMatchChannel(peerId, mpDeriveMatchRoomName(peerId, 0), { reuseRoom: mp.room });
     mpSaveSession();
     mpBeginSquadPhase();
     mpStartConnectionWatchdog(peerId);
 }
 
-// Guards against the failure mode behind "both screens stuck on waiting for
-// opponent to roll squads": occasionally the two sides already share an
-// underlying WebRTC connection from the lobby room, so the fresh private
-// room's onPeerJoin never fires and messages (or their acks) silently never
-// arrive, even with the seq/ack retry loop in mpWireReliableRoom. There's no
-// way to distinguish "still handshaking" from "will never connect" from one
+// Guards against the rarer case where even the reused lobby connection goes
+// stale mid-handoff (e.g. it drops right as the match is found). There's no
+// way to distinguish "still catching up" from "will never arrive" from one
 // side alone, so instead of waiting forever, periodically check whether the
-// squad/draft handoff has actually completed, and if not, force a genuinely
-// new room name — a room trystero has never used for this pair guarantees a
-// real join handshake — and resend whatever this side owes the other.
+// squad/draft handoff has actually completed, and if not, hop to a genuinely
+// fresh room (a real join handshake, since this is no longer the "maybe
+// already shares a connection" case) and resend whatever this side owes.
 function mpStartConnectionWatchdog(peerId) {
     let attempts = 0;
     const MAX_ATTEMPTS = 4; // ~4 * 8s = 32s of escalation before giving up
@@ -4957,6 +4975,12 @@ function mpStartBattleFromPayload(built) {
     gameState.unusedBloodbanes = built.unusedBloodbanes || [];
     gameState.unusedBloodbornes = built.unusedBloodbornes || [];
     document.getElementById('draftView').style.display = 'none';
+    // mpRunRandomizedSquadFlow's "waiting" branch shows mpPanel (and re-shows
+    // setupView) while side 2 sits on "Waiting for opponent to roll
+    // squads...". startBattleWithSquads below hides setupView, but mpPanel
+    // is a sibling, not a child of it, so without this it was left visible,
+    // stuck on top of the battle screen once squads actually arrived.
+    document.getElementById('mpPanel').style.display = 'none';
     mp.phase = 'battle';
     mp.draft = null;
     startBattleWithSquads(built.p1Squad, built.p2Squad, built.p1Tier, built.p2Tier, { vsBot: false });
@@ -5011,6 +5035,7 @@ function mpStartDraft() {
     };
     mp.phase = 'draft';
     document.getElementById('draftView').style.display = 'block';
+    document.getElementById('mpPanel').style.display = 'none';
     bl_enterGameScreen();
     mpRenderDraft();
     mpSaveSnapshot();
