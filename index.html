@@ -1136,6 +1136,24 @@
             animation-timing-function: steps(6, jump-none);
             animation-fill-mode: forwards;
         }
+        /* Local 2-player "chess board" mode: the phone lies flat on the
+           table, Player 1 sits at one edge and Player 2 sits at the
+           opposite edge. Nothing on screen ever changes position — the
+           squad that's nearest Player 1 always stays nearest Player 1, and
+           the same for Player 2. The only thing that changes is that this
+           wrapper (title, turn indicator, undo bar, both squads, log) gets
+           rotated 180° whenever it's Player 2's turn, so it reads upright
+           from Player 2's seat instead of Player 1's. The back button and
+           the ••• comms menu live outside this wrapper on purpose, so they
+           stay put in their corners for whoever's thumb is nearest them.  */
+        #battleFlipWrap {
+            transform: rotate(0deg);
+            transition: transform 0.45s ease;
+            transform-origin: center center;
+        }
+        #battleFlipWrap.seat-2-active {
+            transform: rotate(180deg);
+        }
     </style>
 
 
@@ -1310,6 +1328,7 @@
 
     <div id="gameView" style="display: none;">
         <button class="back-fab-btn" onclick="blConfirmBackFromMatch()" title="Back">←</button>
+        <div id="battleFlipWrap">
         <h1 class="wordmark"><span>g</span><span>r</span><span>i</span><span>m</span><span>o</span><span>i</span><span>r</span><span>e</span></h1>
         <div class="turn-display" id="turnIndicator"></div>
         
@@ -1328,16 +1347,17 @@
         <button id="resetButton" class="reset-btn" style="display:none;" onclick="resetToSetup()">RETURN TO ROOT SCREEN</button>
         <button id="rematchButton" class="rematch-btn" style="display:none;" onclick="handleRematchClick()">🔁 INSTANT REMATCH</button>
 
+        <div class="squad-title" id="p2Title" style="margin-top:0;">Miasma</div>
+        <div class="squad" id="p2Field"></div>
+
+        <div class="log" id="combatLog"></div>
+
         <div class="squad-title-row">
-            <span class="squad-title" id="p1Title" style="margin-top:0; border-bottom:none; padding-bottom:0;">Arcanum</span>
+            <span class="squad-title" id="p1Title" style="border-bottom:none; padding-bottom:0;">Arcanum</span>
             <span class="move-timer" id="moveTimer"></span>
         </div>
         <div class="squad" id="p1Field"></div>
-        
-        <div class="log" id="combatLog"></div>
-
-        <div class="squad-title" id="p2Title">Miasma</div>
-        <div class="squad" id="p2Field"></div>
+        </div>
 
         <div id="commsBar" class="comms-bar">
             <button id="commsToggleBtn" class="comms-toggle-btn" onclick="toggleCommsMenu()" title="Voice & Chat">•••</button>
@@ -1681,6 +1701,16 @@ let gameState = {
     // instead of the swap being sent to a second device over the network.
     isLocalMultiplayer: false
 };
+
+// Local (same-device) 2-player "chess board" mode: which physical seat is
+// currently up. This is purely a display concern — it never touches
+// gameState.p1/p2 and the engine's existing swap-in-place trick (see
+// advanceLocalMultiplayerTurn) is left completely untouched. All this does
+// is tell renderScene() whether to rotate #battleFlipWrap 180°, so whichever
+// seat is active can read the board upright without the squads themselves
+// ever changing position on screen. 1 = the seat that isn't rotated,
+// 2 = the seat sitting opposite (rotated).
+let localActiveSeat = 1;
 
 // ============================================================================
 // SETTINGS & HAPTICS
@@ -3956,6 +3986,12 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
         } else {
             writeLog(p2Tier < p1Tier ? "💠 Player 2's squad has the lower tier total and moves first!" : "💠 Player 1's squad has the lower tier total and moves first!");
         }
+        // Whichever physical seat has the lower tier total moves first —
+        // capture that BEFORE the engine's internal swap below forces
+        // currentTurn back to 1. This is the only place localActiveSeat
+        // gets set from tier math; every later turn just toggles it (see
+        // advanceLocalMultiplayerTurn).
+        localActiveSeat = gameState.currentTurn;
         if (gameState.currentTurn === 2) {
             // Player 2 goes first. Same swap advanceLocalMultiplayerTurn
             // performs on every later turn change, done once up front here —
@@ -4005,6 +4041,7 @@ function initializeMatch() {
     mp.isMultiplayer = false;
     mpClearSession();
     gameState.isLocalMultiplayer = false;
+    localActiveSeat = 1;
     let built = buildRandomBalancedSquads();
     gameState.unusedBloodbanes = built.unusedBloodbanes;
     gameState.unusedBloodbornes = built.unusedBloodbornes;
@@ -6514,6 +6551,10 @@ function finalizeActiveTurn(actingCardId) {
 function advanceLocalMultiplayerTurn() {
     Object.assign(gameState, mpBuildSwappedStatePayload());
     gameState.currentTurn = 1;
+    // Purely visual: flip which seat is "upright" now. The engine swap
+    // above is what actually hands control to the other human; this just
+    // decides whether renderScene() rotates the board for them.
+    localActiveSeat = (localActiveSeat === 1) ? 2 : 1;
     abortTargetingSequence();
     renderScene();
     startMoveTimer(1);
@@ -7689,6 +7730,14 @@ function cardTitleClass(name) {
 }
 
 function renderScene() {
+    // Chess-board seating: rotate the flippable content 180° when it's
+    // physical Player 2's turn, so they can read it upright from their
+    // side of the table. Squad positions never move — only this wrapper's
+    // orientation does — and this never runs outside local 2-player mode.
+    const flipWrap = document.getElementById('battleFlipWrap');
+    if (flipWrap) {
+        flipWrap.classList.toggle('seat-2-active', gameState.isLocalMultiplayer && localActiveSeat === 2);
+    }
     // Wendigo can't be killed before it changes form - its 1 Hex is untouchable.
     [...gameState.p1, ...gameState.p2].forEach(c => {
         if ((c.name === 'Wendigo' || c.name === 'Kitsune') && c.hex < 1) c.hex = 1;
