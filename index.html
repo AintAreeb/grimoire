@@ -1222,8 +1222,11 @@
             display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0;
         }
         .account-username-glow {
-            font-size: 12px; font-weight: 700; color: #ffd700; text-align: center;
+            font-size: 12px; font-weight: 700; color: #e8e0c9; text-align: center;
             max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            text-shadow:
+                0 2px 0 rgba(0,0,0,0.55),
+                0 0 10px rgba(255,51,51,0.5);
         }
         .account-loggedin-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; justify-content: center; }
         .account-badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
