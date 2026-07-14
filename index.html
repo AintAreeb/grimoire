@@ -170,6 +170,12 @@
             box-shadow: 0 0 20px rgba(0, 255, 0, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
         
+        /* Opponent-card targeting uses gold instead of the ally-selection green. */
+        .card.valid-target-enemy { 
+            border-color: rgba(255, 191, 0, 0.55); 
+            box-shadow: 0 0 20px rgba(255, 191, 0, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
+        }
+        
         .card.selected-first { 
             border-color: rgba(51, 204, 255, 0.6); 
             box-shadow: 0 0 20px rgba(51, 204, 255, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
@@ -421,6 +427,14 @@
         }
         .btn.target-btn:hover {
             background: rgba(0, 170, 0, 1);
+        }
+        
+        .btn.target-btn.enemy-target-btn { 
+            background: rgba(255, 191, 0, 0.85); 
+            color: #1a1200; 
+        }
+        .btn.target-btn.enemy-target-btn:hover {
+            background: rgba(255, 191, 0, 1);
         }
         
         .btn.free-btn { 
@@ -9139,14 +9153,14 @@ function renderScene() {
         }
 
         p2Html += `
-            <div class="card ${blOpponentSkinClass()} ${isDead ? 'dead' : ''} ${card.imprisoned ? 'imprisoned' : ''} ${isEligibleEnemy ? 'valid-target' : ''} ${isSelectedFirst ? 'selected-first' : ''}">
+            <div class="card ${blOpponentSkinClass()} ${isDead ? 'dead' : ''} ${card.imprisoned ? 'imprisoned' : ''} ${isEligibleEnemy ? 'valid-target-enemy' : ''} ${isSelectedFirst ? 'selected-first' : ''}">
                 <div class="card-title${cardTitleClass(card.name)}">${card.name}</div>
                 <span class="card-tag">${card.tag}</span>
                 ${card.poisoned ? `<span class="poison-badge">☣️ POISON</span>` : ''}
                 ${card.blockedCounter > 0 ? `<span class="blocked-badge">BLOCKED (${card.blockedCounter-1})</span>` : ''}
                 ${gameState.p2KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
                 <div class="hearts">${card.name === 'Spy' && !isDead ? '⬡ ∞' : (isDead ? '☠️ DEAD' : '⬡'.repeat(card.hex))}</div>
-                ${isEligibleEnemy ? `<button class="btn target-btn" onclick="processSelectedTarget('${card.id}')">CHOOSE</button>` : ''}
+                ${isEligibleEnemy ? `<button class="btn target-btn enemy-target-btn" onclick="processSelectedTarget('${card.id}')">CHOOSE</button>` : ''}
             </div>
         `;
     });
@@ -9168,7 +9182,7 @@ function renderCardActionButtons(card, btns) {
     window.__mergedActionButtons[card.id] = btns
         .map(b => b.replace('onclick="', 'onclick="closeMergedActionModal(); '))
         .join('');
-    return `<button class="btn" style="background:#3a3a3a;" onclick="openMergedActionModalFor('${card.id}', '${card.name.toUpperCase()} ACTIONS')">⚡ Actions</button>`;
+    return `<button class="btn" onclick="openMergedActionModalFor('${card.id}', '${card.name.toUpperCase()} ACTIONS')">⚡ Actions</button>`;
 }
 
 function openMergedActionModalFor(cardId, title) {
@@ -9197,22 +9211,22 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
     if (!isLockedByCooldown && (validTargetsExist || ['Knight', 'Chronos', 'Bartender', 'Actor', 'Dementor', 'Mecha', 'Sorcerer'].includes(card.name))) {
         let btns = [];
         if (card.name === 'Terrorist') {
-            btns.push(`<button class="btn" style="background:#bf360c;" onclick="executeTerroristDrain('${card.id}')">💥 Drain</button>`);
+            btns.push(`<button class="btn" onclick="executeTerroristDrain('${card.id}')">💥 Drain</button>`);
         }
         if (card.name === 'Therapist') {
-            btns.push(`<button class="btn" style="background:#00acc1;" onclick="executeTherapistReboundPrep('${card.id}')">🧘 Rebound</button>`);
+            btns.push(`<button class="btn" onclick="executeTherapistReboundPrep('${card.id}')">🧘 Rebound</button>`);
         }
         if (card.name === 'Reporter') {
-            btns.push(`<button class="btn" style="background:#0d47a1;" onclick="openTargetingOverlay('${card.id}', 'reporter_heal_1', '📰 REPORTER: SELECT 1ST CARD TO HEAL')">📰 Heal</button>`);
+            btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'reporter_heal_1', '📰 REPORTER: SELECT 1ST CARD TO HEAL')">📰 Heal</button>`);
         }
         if (card.name === 'Actor') {
-            btns.push(`<button class="btn" style="background:#e040fb;" onclick="runActorAbilityPad()">🎭 Mimic</button>`);
+            btns.push(`<button class="btn" onclick="runActorAbilityPad()">🎭 Mimic</button>`);
         }
         if (card.name === 'Princess') {
-            btns.push(`<button class="btn" style="background:#ff4081;" onclick="executePrincessSacrifice('${card.id}')">👸 Sacrifice</button>`);
+            btns.push(`<button class="btn" onclick="executePrincessSacrifice('${card.id}')">👸 Sacrifice</button>`);
         }
         if (card.name === 'Warden') {
-            btns.push(`<button class="btn" style="background:#1565c0;" onclick="openTargetingOverlay('${card.id}', 'warden_jailbreak', '⚖️ WARDEN: SELECT ALLY TO FREE')">⚖️ Jailbreak</button>`);
+            btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'warden_jailbreak', '⚖️ WARDEN: SELECT ALLY TO FREE')">⚖️ Jailbreak</button>`);
         }
         if (card.name === 'Killer') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'killer_strike', '🎯 KILLER EXECUTION')">Kill</button>`);
         if (card.name === 'Robber') {
@@ -9223,7 +9237,7 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
             if (card.hex === 1) {
                 let targetsExist = gameState.p2.some(c => c.hex > 0 && !c.imprisoned && (c.tag === 'Criminal' || c.name === 'Dictator') && !isHarmMoveWasted(c));
                 if (targetsExist) {
-                    btns.push(`<button class="btn" style="background:#ff5500;" onclick="openTargetingOverlay('${card.id}', 'robber_execute', '🪓 EXECUTE DICTATOR/CRIMINAL')">Execute</button>`);
+                    btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'robber_execute', '🪓 EXECUTE DICTATOR/CRIMINAL')">Execute</button>`);
                 }
             }
         }
@@ -9235,79 +9249,82 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
             if (card.hex === 1) {
                 let targetsExist = gameState.p2.some(c => c.hex > 0 && !c.imprisoned && (c.tag === 'Mystic' || c.tag === 'Entity') && !isHarmMoveWasted(c));
                 if (targetsExist) {
-                    btns.push(`<button class="btn" style="background:#ff5500;" onclick="openTargetingOverlay('${card.id}', 'wraith_execute', '🪓 EXECUTE MYSTIC/ENTITY')">Execute</button>`);
+                    btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'wraith_execute', '🪓 EXECUTE MYSTIC/ENTITY')">Execute</button>`);
                 }
             }
         }
         if (card.name === 'Mage') {
-            if (card.hex >= 1) btns.push(`<button class="btn" style="background:#3f51b5;" onclick="openTargetingOverlay('${card.id}', 'mage_revive_1', '🧙‍♂️ MAGE REVIVE (1 HEX)')">Revive 1</button>`);
-            if (card.hex >= 2) btns.push(`<button class="btn" style="background:#3f51b5;" onclick="openTargetingOverlay('${card.id}', 'mage_revive_2', '🧙‍♂️ MAGE REVIVE (2 HEX)')">Revive 2</button>`);
-            if (card.hex >= 3) btns.push(`<button class="btn" style="background:#3f51b5;" onclick="openTargetingOverlay('${card.id}', 'mage_revive_3', '🧙‍♂️ MAGE REVIVE (3 HEX)')">Revive 3</button>`);
+            if (card.hex >= 1) btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mage_revive_1', '🧙‍♂️ MAGE REVIVE (1 HEX)')">Revive 1</button>`);
+            if (card.hex >= 2) btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mage_revive_2', '🧙‍♂️ MAGE REVIVE (2 HEX)')">Revive 2</button>`);
+            if (card.hex >= 3) btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mage_revive_3', '🧙‍♂️ MAGE REVIVE (3 HEX)')">Revive 3</button>`);
             if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
-                btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
+                btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
             }
         }
         if (card.name === 'Warlock') {
-            if (card.hex >= 1) btns.push(`<button class="btn" style="background:#673ab7;" onclick="openTargetingOverlay('${card.id}', 'warlock_release_1', '🔗 WARLOCK RELEASE (1 HEX)')">Release 1</button>`);
-            if (card.hex >= 2) btns.push(`<button class="btn" style="background:#673ab7;" onclick="openTargetingOverlay('${card.id}', 'warlock_release_2', '🔗 WARLOCK RELEASE (2 HEX)')">Release 2</button>`);
-            if (card.hex >= 3) btns.push(`<button class="btn" style="background:#673ab7;" onclick="openTargetingOverlay('${card.id}', 'warlock_release_3', '🔗 WARLOCK RELEASE (3 HEX)')">Release 3</button>`);
+            if (card.hex >= 1) btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'warlock_release_1', '🔗 WARLOCK RELEASE (1 HEX)')">Release 1</button>`);
+            if (card.hex >= 2) btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'warlock_release_2', '🔗 WARLOCK RELEASE (2 HEX)')">Release 2</button>`);
+            if (card.hex >= 3) btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'warlock_release_3', '🔗 WARLOCK RELEASE (3 HEX)')">Release 3</button>`);
             if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
-                btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
+                btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
             }
         }
         if (card.name === 'Mecha') {
-            btns.push(`<button class="btn" style="background:#009688;" onclick="runMechaAbilityPad('${card.id}')">Fuse</button>`);
+            btns.push(`<button class="btn" onclick="runMechaAbilityPad('${card.id}')">Fuse</button>`);
         }
         if (card.name === 'Wendigo') {
-            btns.push(`<button class="btn" style="background:#8d6e63;" onclick="runWendigoAbilityPad('${card.id}')">🐺 Transform</button>`);
+            btns.push(`<button class="btn" onclick="runWendigoAbilityPad('${card.id}')">🐺 Transform</button>`);
         }
         if (card.name === 'Kitsune') {
-            btns.push(`<button class="btn" style="background:#e65100;" onclick="runKitsuneAbilityPad('${card.id}')">🦊 Transform</button>`);
+            btns.push(`<button class="btn" onclick="runKitsuneAbilityPad('${card.id}')">🦊 Transform</button>`);
         }
         if (card.name === 'Samurai') {
-            btns.push(`<button class="btn" style="background:#7a1f1f;" onclick="executeSamuraiStrike('${card.id}')">⚔️ Bushido</button>`);
+            btns.push(`<button class="btn" onclick="executeSamuraiStrike('${card.id}')">⚔️ Bushido</button>`);
         }
         if (card.name === 'Hacker') {
-            btns.push(`<button class="btn" style="background:#37474f;" onclick="runHackerAbilityPad('${card.id}')">💻 Swap</button>`);
+            btns.push(`<button class="btn" onclick="runHackerAbilityPad('${card.id}')">💻 Swap</button>`);
         }
         if (card.name === 'Dementor') {
-            btns.push(`<button class="btn" style="background:#5d4037;" onclick="runDementorAbilityPad('${card.id}')">Mimic</button>`);
+            btns.push(`<button class="btn" onclick="runDementorAbilityPad('${card.id}')">Mimic</button>`);
         }
         if (card.name === 'Chronos') {
-            btns.push(`<button class="btn" style="background:#795548;" onclick="executeChronosTimeTravel('${card.id}')">⏳ Rewind</button>`);
+            btns.push(`<button class="btn" onclick="executeChronosTimeTravel('${card.id}')">⏳ Rewind</button>`);
         }
         if (card.name === 'Jinn') {
-            btns.push(`<button class="btn" style="background:#00bcd4;" onclick="openTargetingOverlay('${card.id}', 'jinn_block', '🧞 SELECT TARGET TO BLOCK FOR 3 MOVES')">Lockdown</button>`);
+            btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'jinn_block', '🧞 SELECT TARGET TO BLOCK FOR 3 MOVES')">Lockdown</button>`);
         }
         if (card.name === 'Bartender') {
             let copyRole = gameState.p2LastMoveRole;
             let canCopy = copyRole && BARTENDER_MIMICABLE_ROLES.includes(copyRole);
-            let labelText = canCopy ? `🍹 Copy ${copyRole}` : '🍹 Skip';
-            btns.push(`<button class="btn" style="background:#ff9800; color:#000;" onclick="runBartenderAbilityPad('${card.id}')">${labelText}</button>`);
+            if (canCopy) {
+                btns.push(`<button class="btn" onclick="runBartenderAbilityPad('${card.id}')">🍹 Copy ${copyRole}</button>`);
+            } else {
+                btns.push(`<button class="btn waste-btn" onclick="runBartenderAbilityPad('${card.id}')">🍹 Skip</button>`);
+            }
         }
         if (card.name === 'Doctor') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'doctor_heal', '❤️ HEAL SQUADMATE')">Heal</button>`);
         if (card.name === 'Dictator') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'dictator_imprison', '⛓️ DICTATOR IMPRISON')">Jail</button>`);
-        if (card.name === 'Cop') btns.push(`<button class="btn" style="background:#2a4d7c;" onclick="openTargetingOverlay('${card.id}', 'cop_strike', '👮 ENFORCE LAW')">Strike</button>`);
-        if (card.name === 'Singer') btns.push(`<button class="btn" style="background:#9c27b0;" onclick="openTargetingOverlay('${card.id}', 'singer_step1', '🎤 DUET TARGET A')">Duet</button>`);
-        if (card.name === 'Spy') btns.push(`<button class="btn" style="background:#4caf50;" onclick="openTargetingOverlay('${card.id}', 'spy_strike', '👁️ SPY INFILTRATE')">Attack</button>`);
-        if (card.name === 'Ninja') btns.push(`<button class="btn" style="background:#607d8b;" onclick="openTargetingOverlay('${card.id}', 'ninja_strike', '🥷 SHADOW STRIKE')">Strike</button>`);
-        if (card.name === 'Hood') btns.push(`<button class="btn" style="background:#e91e63;" onclick="openTargetingOverlay('${card.id}', 'hood_step1', '🏹 STEAL HEX')">Steal</button>`);
+        if (card.name === 'Cop') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'cop_strike', '👮 ENFORCE LAW')">Strike</button>`);
+        if (card.name === 'Singer') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'singer_step1', '🎤 DUET TARGET A')">Duet</button>`);
+        if (card.name === 'Spy') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'spy_strike', '👁️ SPY INFILTRATE')">Attack</button>`);
+        if (card.name === 'Ninja') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'ninja_strike', '🥷 SHADOW STRIKE')">Strike</button>`);
+        if (card.name === 'Hood') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'hood_step1', '🏹 STEAL HEX')">Steal</button>`);
         
         if (card.name === 'Witch') {
-            btns.push(`<button class="btn" style="background:#2e7d32;" onclick="openTargetingOverlay('${card.id}', 'witch_poison', '🔮 WITCH: ATTACK & POISON')">Attack</button>`);
+            btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'witch_poison', '🔮 WITCH: ATTACK & POISON')">Attack</button>`);
             if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
-                btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
+                btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
             }
         }
-        if (card.name === 'Lawyer') btns.push(`<button class="btn" style="background:#00838f;" onclick="openTargetingOverlay('${card.id}', 'lawyer_lock', '⚖️ LAWYER IMPRISONMENT')">Lock</button>`);
+        if (card.name === 'Lawyer') btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'lawyer_lock', '⚖️ LAWYER IMPRISONMENT')">Lock</button>`);
         if (card.name === 'Knight') {
-            if (card.hex === 2) btns.push(`<button class="btn" style="background:#059669;" onclick="executeKnightFirstMove('${card.id}')">🛡️ Shield</button>`);
-            else btns.push(`<button class="btn" style="background:#c62828;" onclick="openTargetingOverlay('${card.id}', 'knight_strike', '⚔️ KNIGHT BLADE')">Strike</button>`);
+            if (card.hex === 2) btns.push(`<button class="btn" onclick="executeKnightFirstMove('${card.id}')">🛡️ Shield</button>`);
+            else btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'knight_strike', '⚔️ KNIGHT BLADE')">Strike</button>`);
         }
         if (card.name === 'Sorcerer') {
-            btns.push(`<button class="btn" style="background:#6a1b9a;" onclick="runSorcererAbilityPad('${card.id}')">Hijack</button>`);
+            btns.push(`<button class="btn" onclick="runSorcererAbilityPad('${card.id}')">Hijack</button>`);
             if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
-                btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
+                btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
             }
         }
         if (card.name === 'Imam') {
@@ -9321,10 +9338,10 @@ function buildDynamicActionPads(card, isLockedByCooldown) {
                 }
             }
             if (canBlock) {
-                btns.push(`<button class="btn" style="background:#059669;" onclick="executeImamDefensiveBlock('${card.id}')">🕌 Revive Block</button>`);
+                btns.push(`<button class="btn" onclick="executeImamDefensiveBlock('${card.id}')">🕌 Revive Block</button>`);
             }
             if (gameState.p2.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity' && !isHarmMoveWasted(c))) {
-                btns.push(`<button class="btn" style="background:#4a148c;" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
+                btns.push(`<button class="btn" onclick="openTargetingOverlay('${card.id}', 'mystic_purge', '✨ MYSTIC PURGE')">Purge</button>`);
             }
         }
 
