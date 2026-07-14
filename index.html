@@ -8999,6 +8999,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
             if (aiActor.name !== 'Spy' && !aiActor.isHeroic) aiActor.hex -= 1;
             aiActor.hasActivity = true;
             if (aiActor.hex <= 0) aiActor.hex = 0;
+            if (aiActor.isHeroic) aiActor.hex = 0;
             gameState.p2LastMoveRole = null;
             writeLog(`🤖 Bot ${aiActor.name} has no operational space and passes.`);
         }
