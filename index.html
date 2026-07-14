@@ -175,6 +175,14 @@
             border-color: rgba(255, 191, 0, 0.55); 
             box-shadow: 0 0 20px rgba(255, 191, 0, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
+
+        /* While a card is an eligible attack target, the CHOOSE button gets
+           squeezed in below the tag/hearts and can clip against the card's
+           bottom edge. Hiding the tag (subcategory label) during targeting
+           frees up just enough room for the button to render in full. */
+        .card.valid-target-enemy .card-tag {
+            display: none;
+        }
         
         .card.selected-first { 
             border-color: rgba(51, 204, 255, 0.6); 
