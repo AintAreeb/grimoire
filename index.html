@@ -1827,6 +1827,14 @@
         <button class="guide-close-btn" onclick="closeProfileModal()">Close</button>
     </div>
 
+    <div id="sessionKickedModal" class="guide-modal" style="max-width:300px; text-align:center;">
+        <h3>🔒 Logged Out</h3>
+        <div class="guide-body" style="text-align:center; padding:8px 4px;">
+            Your account was logged in from another browser, so you've been signed out here. Only one browser can be logged in at a time.
+        </div>
+        <button class="guide-close-btn" onclick="document.getElementById('sessionKickedModal').style.display='none';">OK</button>
+    </div>
+
     <div id="favCardModal" class="guide-modal" style="max-width:300px;">
         <h3>⭐ Choose Favourite Card</h3>
         <div class="guide-body" id="favCardListView"></div>
@@ -4164,8 +4172,62 @@ function blRestoreAccountOnLoad() {
         const raw = localStorage.getItem(BL_ACCOUNT_KEY);
         if (raw) blAccount = JSON.parse(raw);
     } catch (e) {}
+    if (blAccount) {
+        blCheckSessionStillValid().then(stillValid => {
+            if (!stillValid) {
+                blForceLogoutFromElsewhere();
+            } else {
+                blStartSessionPolling();
+            }
+        });
+    }
     blRenderAccountUI();
     if (blAccount) blPullMusicFromAccount();
+}
+
+// ----------------------------------------------------------------------------
+// SINGLE-SESSION ENFORCEMENT
+// Layered on top of the existing account system without touching
+// register_player/login_player: on every successful login/register we mint a
+// fresh session_token server-side (start_session, see
+// grimoire_sessions_setup.sql), which overwrites any previous token for that
+// username. We keep our own token in blAccount/localStorage and periodically
+// (and on page load) ask the server whether it still matches. If another
+// browser has since logged in, the tokens no longer match and we log out here.
+// ----------------------------------------------------------------------------
+let blSessionPollTimer = null;
+
+async function blStartSession(username) {
+    const result = await blCallAccountRpc('start_session', { p_username: username });
+    return (result && result.ok) ? result.session_token : null;
+}
+
+async function blCheckSessionStillValid() {
+    if (!blAccount || !blAccount.session_token) return true; // nothing to check against
+    const result = await blCallAccountRpc('check_session', { p_username: blAccount.username, p_session_token: blAccount.session_token });
+    return !result || result.ok !== true || result.valid !== false; // fail-open on server/network errors
+}
+
+function blStopSessionPolling() {
+    if (blSessionPollTimer) { clearInterval(blSessionPollTimer); blSessionPollTimer = null; }
+}
+
+function blStartSessionPolling() {
+    blStopSessionPolling();
+    blSessionPollTimer = setInterval(async () => {
+        if (!blAccount) { blStopSessionPolling(); return; }
+        const stillValid = await blCheckSessionStillValid();
+        if (!stillValid) blForceLogoutFromElsewhere();
+    }, 20000);
+}
+
+function blForceLogoutFromElsewhere() {
+    blStopSessionPolling();
+    blAccount = null;
+    try { localStorage.removeItem(BL_ACCOUNT_KEY); } catch (e) {}
+    blRenderAccountUI();
+    const modal = document.getElementById('sessionKickedModal');
+    if (modal) modal.style.display = 'flex';
 }
 
 async function blRegister() {
@@ -4178,11 +4240,13 @@ async function blRegister() {
     blSetAccountStatus('Creating account...');
     const result = await blCallAccountRpc('register_player', { p_username: username, p_password: password });
     if (result.ok) {
-        blAccount = { username: result.username };
+        const sessionToken = await blStartSession(result.username);
+        blAccount = { username: result.username, session_token: sessionToken };
         localStorage.setItem(BL_ACCOUNT_KEY, JSON.stringify(blAccount));
         blSetAccountStatus('');
         blRenderAccountUI();
         blPullMusicFromAccount();
+        blStartSessionPolling();
     } else {
         blSetAccountStatus(result.error || 'Could not create account.');
     }
@@ -4194,17 +4258,20 @@ async function blLogin() {
     blSetAccountStatus('Logging in...');
     const result = await blCallAccountRpc('login_player', { p_username: username, p_password: password });
     if (result.ok) {
-        blAccount = { username: result.username };
+        const sessionToken = await blStartSession(result.username);
+        blAccount = { username: result.username, session_token: sessionToken };
         localStorage.setItem(BL_ACCOUNT_KEY, JSON.stringify(blAccount));
         blSetAccountStatus('');
         blRenderAccountUI();
         blPullMusicFromAccount();
+        blStartSessionPolling();
     } else {
         blSetAccountStatus(result.error || 'Could not log in.');
     }
 }
 
 function blLogout() {
+    blStopSessionPolling();
     blAccount = null;
     try { localStorage.removeItem(BL_ACCOUNT_KEY); } catch (e) {}
     document.getElementById('acctUsername').value = '';
@@ -9023,7 +9090,7 @@ function renderScene() {
         if (gameState.currentTurn === 1 && !blockedByUndoFlow && !isDead && card.poisoned) {
             let activeDoc = gameState.p1.find(c => c.name === 'Doctor' && c.hex > 0 && !c.imprisoned);
             if (activeDoc) {
-                doctorCleanseBtn = `<button class="btn free-btn" onclick="freeDoctorCleanse('${activeDoc.id}','${card.id}')">⚕️ Cleanse</button>`;
+                doctorCleanseBtn = `<button class="btn free-btn" onclick="freeDoctorCleanse('${activeDoc.id}','${card.id}')" title="Cleanse">⚕️</button>`;
             }
         }
 
