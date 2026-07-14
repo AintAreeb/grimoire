@@ -1,0 +1,7 @@
+{
+  "appId": "com.grimoire.cardgame",
+  "appName": "Grimoire",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": { "allowMixedContent": true }
+}
