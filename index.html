@@ -1163,9 +1163,23 @@
         }
         .account-btn-alt { background: #2a2932; }
         .account-status { font-size: 10px; color: #ff8888; text-align: center; margin-top: 6px; min-height: 12px; }
-        #accountLoggedIn {
-            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        .friend-preview-card {
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; padding: 10px; margin-top: 10px;
         }
+        .friend-preview-main { flex: 1; min-width: 0; }
+        .friend-preview-name { font-size: 13px; font-weight: 700; color: #e8e0c9; }
+        .friend-preview-actions { display: flex; gap: 6px; margin-top: 10px; }
+        #accountLoggedIn {
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .account-loggedin-top { display: flex; align-items: center; gap: 10px; }
+        .account-avatar-sm {
+            width: 44px; height: 44px; font-size: 22px; cursor: pointer; flex-shrink: 0;
+        }
+        .account-loggedin-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .account-badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
         #accountWelcome { font-size: 12px; font-weight: 600; color: #4af7a7; }
         #accountLoggedIn .account-btn { flex: none; padding: 8px 12px; }
         /* Tutorial ("Learn Mode") guide chat bubble */
@@ -1453,10 +1467,18 @@
                 </div>
                 <div id="accountStatus" class="account-status"></div>
             </div>
-            <div id="accountLoggedIn" style="display:none; position:relative;">
-                <span id="accountWelcome"></span>
-                <span id="accountFavBadge" class="profile-fav-badge profile-fav-empty" style="display:none; margin-left:6px;"></span>
-                <span id="accountRankBadge" class="profile-fav-badge" style="display:none; margin-left:6px; background:transparent;"></span>
+            <div id="accountLoggedIn" style="display:none;">
+                <div class="account-loggedin-top">
+                    <div id="accountAvatarCircle" class="profile-avatar-circle account-avatar-sm" onclick="openProfileModal()" title="View profile">🧙</div>
+                    <div class="account-loggedin-info">
+                        <span id="accountWelcome"></span>
+                        <div id="accountTitleBadge" class="title-badge" style="display:none;"></div>
+                        <div class="account-badge-row">
+                            <span id="accountFavBadge" class="profile-fav-badge profile-fav-empty" style="display:none;"></span>
+                            <span id="accountRankBadge" class="profile-fav-badge" style="display:none; background:transparent;"></span>
+                        </div>
+                    </div>
+                </div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
                     <button class="account-btn account-btn-alt" onclick="openProfileModal()">👤 Profile</button>
                     <button class="account-btn account-btn-alt" onclick="openRankingModal()">🏆 Ranking</button>
@@ -1691,8 +1713,9 @@
         <div class="guide-body" id="friendsListView"></div>
         <div class="guide-body" id="friendsReqView" style="display:none;"></div>
         <div class="guide-body" id="friendsAddView" style="display:none;">
-            <input type="text" id="friendAddInput" class="account-input" placeholder="Username" maxlength="20" autocomplete="off">
-            <button class="account-btn" style="width:100%;" onclick="blSendFriendRequest()">Send Request</button>
+            <input type="text" id="friendAddInput" class="account-input" placeholder="Username" maxlength="20" autocomplete="off" oninput="blResetFriendSearch()">
+            <button class="account-btn" style="width:100%;" onclick="blSearchFriendAccount()">View Account</button>
+            <div id="friendAddPreview" style="display:none;"></div>
             <div id="friendAddStatus" class="account-status"></div>
         </div>
         <button class="guide-close-btn" onclick="closeFriendsModal()">Close</button>
@@ -2348,13 +2371,49 @@ function replayToggleAutoplay() {
     }
 }
 
+const BL_PENDING_MATCHES_KEY = 'grimoire_pending_matches'; // matches that failed to record server-side, retried on next login/app load
+
+function blLoadPendingMatches() {
+    try {
+        const raw = localStorage.getItem(BL_PENDING_MATCHES_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+}
+function blSavePendingMatches(list) {
+    try { localStorage.setItem(BL_PENDING_MATCHES_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function blQueuePendingMatch(payload) {
+    const list = blLoadPendingMatches();
+    list.push(payload);
+    blSavePendingMatches(list);
+}
+// Retries any match results that failed to save server-side earlier (e.g. a
+// dropped connection right at match end). Called after login/restore so a
+// match you played offline-ish still shows up in your history once the
+// connection is back, instead of silently vanishing.
+async function blFlushPendingMatches() {
+    if (!blAccount) return;
+    const list = blLoadPendingMatches();
+    if (list.length === 0) return;
+    const stillPending = [];
+    for (const payload of list) {
+        try {
+            const result = await blCallAccountRpc('record_match_result', payload);
+            if (!result || !result.ok) stillPending.push(payload);
+        } catch (e) {
+            stillPending.push(payload);
+        }
+    }
+    blSavePendingMatches(stillPending);
+}
+
 // Records a completed match to the logged-in local player's Supabase match
 // history — real multiplayer matches only (solo/vs-bot never calls this).
 // Silently no-ops if the player isn't logged in, since match history is
 // per-account. The opponent's username is only known if they were also
 // logged in and the 'identify' handshake reached us (see mpBeginSquadPhase);
 // otherwise the match is still recorded, just against an unknown opponent.
-function recordMultiplayerMatchIfNeeded() {
+async function recordMultiplayerMatchIfNeeded() {
     if (!mp.isMultiplayer || !blAccount) return;
     let p1Alive = gameState.p1.some(c => c.hex > 0 && !c.imprisoned);
     let p2Alive = gameState.p2.some(c => c.hex > 0 && !c.imprisoned);
@@ -2362,14 +2421,26 @@ function recordMultiplayerMatchIfNeeded() {
     let mine = Object.values(matchStats).filter(s => s.side === 'p1');
     let sum = (key) => mine.reduce((a, s) => a + (s[key] || 0), 0);
     let sc = statsComputeScores({ attackDmg: sum('attackDmg'), kills: sum('kills'), healAmt: sum('healAmt'), revives: sum('revives'), tactical: sum('tactical') });
-    blCallAccountRpc('record_match_result', {
+    let payload = {
         p_username: blAccount.username,
         p_opponent_username: mp.opponentUsername || null,
         p_result: result,
         p_attack_score: sc.attackScore,
         p_heal_score: sc.healScore,
         p_tactical_score: sc.tacticalScore
-    });
+    };
+    // Awaited (rather than fire-and-forget) so a failed save can be queued
+    // and retried instead of silently never showing up in match history.
+    try {
+        const rpcResult = await blCallAccountRpc('record_match_result', payload);
+        if (!rpcResult || !rpcResult.ok) {
+            console.error('record_match_result failed, queueing for retry:', rpcResult && rpcResult.error);
+            blQueuePendingMatch(payload);
+        }
+    } catch (e) {
+        console.error('record_match_result threw, queueing for retry:', e);
+        blQueuePendingMatch(payload);
+    }
     recordRankingResultIfNeeded(result, mine, sum);
 }
 
@@ -2628,9 +2699,12 @@ async function loadLeaderboard() {
                 <div style="font-size:12px; font-weight:700; color:#e8e0c9;">${blEscapeHtml(r.username)}${isMe ? ' (you)' : ''}</div>
                 <div style="font-size:9.5px; color:${tier.color};">${tier.icon} ${tier.name}</div>
             </div>
-            <div style="text-align:right; flex-shrink:0;">
-                <div style="font-size:12px; font-weight:700; color:#e8e0c9;">${r.ranking_points} RP</div>
-                <div style="font-size:9px; color:#5a5f68;">${r.wins}W-${r.losses}L-${r.draws}D</div>
+            <div style="text-align:right; flex-shrink:0; display:flex; align-items:center; gap:8px;">
+                <div>
+                    <div style="font-size:12px; font-weight:700; color:#e8e0c9;">${r.ranking_points} RP</div>
+                    <div style="font-size:9px; color:#5a5f68;">${r.wins}W-${r.losses}L-${r.draws}D</div>
+                </div>
+                <button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px;" onclick="openProfileModal('${blEscapeJs(r.username)}')">👤</button>
             </div>
         </div>`;
     }).join('');
@@ -3169,7 +3243,11 @@ async function blLoadProfile(username) {
     } : null;
     if (blProfileIsSelf) {
         blMyFavouriteCard = profResult.favourite_card || null;
+        blMyAvatar = profResult.avatar || null;
+        blMyEquippedTitleId = (blProfileTitles && blProfileTitles.equipped_title) || null;
         blRenderAccountFavBadge();
+        blRenderAccountAvatar();
+        blRenderAccountTitleBadge();
         if (blProfileRanking) {
             blRanking = { points: blProfileRanking.ranking_points || 0, wins: blProfileRanking.wins || 0, losses: blProfileRanking.losses || 0, draws: blProfileRanking.draws || 0, worldRank: blProfileRanking.world_rank || null };
             blRenderRankBadge();
@@ -3264,6 +3342,7 @@ function renderProfileHistory() {
                 <div class="mhist-meta">${when}</div>
             </div>
             <div class="mhist-scores">A${m.attack_score} · H${m.heal_score} · T${m.tactical_score}</div>
+            ${m.opponent_username ? `<button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px; margin-left:6px;" onclick="openProfileModal('${blEscapeJs(m.opponent_username)}')">👤</button>` : ''}
         </div>`;
     }).join('');
 }
@@ -3383,6 +3462,9 @@ async function selectFavouriteCard(cardName) {
 
 // Small badge next to the account welcome line showing the logged-in
 // player's favourite card at a glance, without needing to open the modal.
+let blMyAvatar = null; // cached avatar emoji for the lobby avatar circle
+let blMyEquippedTitleId = null; // cached equipped title id for the lobby title badge
+
 function blRenderAccountFavBadge() {
     const el = document.getElementById('accountFavBadge');
     if (!el) return;
@@ -3394,10 +3476,38 @@ function blRenderAccountFavBadge() {
         el.style.display = 'none';
     }
 }
+function blRenderAccountAvatar() {
+    const el = document.getElementById('accountAvatarCircle');
+    if (!el) return;
+    el.innerText = blMyAvatar || '🧙';
+}
+function blRenderAccountTitleBadge() {
+    const el = document.getElementById('accountTitleBadge');
+    if (!el) return;
+    const t = blMyEquippedTitleId ? TITLE_BY_ID_MAP[blMyEquippedTitleId] : null;
+    if (t) {
+        el.style.display = 'inline-flex';
+        el.innerText = `🏅 ${t.name}`;
+    } else {
+        el.style.display = 'none';
+    }
+}
 async function blRefreshOwnFavBadge() {
     if (!blAccount) return;
-    const result = await blCallAccountRpc('get_player_profile', { p_username: blAccount.username });
-    if (result.ok) { blMyFavouriteCard = result.favourite_card || null; blRenderAccountFavBadge(); }
+    const [profResult, titlesResult] = await Promise.all([
+        blCallAccountRpc('get_player_profile', { p_username: blAccount.username }),
+        blCallAccountRpc('get_player_titles', { p_username: blAccount.username })
+    ]);
+    if (profResult.ok) {
+        blMyFavouriteCard = profResult.favourite_card || null;
+        blMyAvatar = profResult.avatar || null;
+        blRenderAccountFavBadge();
+        blRenderAccountAvatar();
+    }
+    if (titlesResult && titlesResult.ok) {
+        blMyEquippedTitleId = titlesResult.equipped_title || null;
+        blRenderAccountTitleBadge();
+    }
 }
 
 // ============================================================================
@@ -3978,12 +4088,15 @@ function blRenderAccountUI() {
         blRefreshOwnFavBadge();
         blRefreshMyRanking();
         blRefreshCosmetics();
+        blFlushPendingMatches();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
         blStopInvitePolling();
         blHideInviteBanner();
         blMyFavouriteCard = null;
+        blMyAvatar = null;
+        blMyEquippedTitleId = null;
         blRanking = null;
         blProfileTitles = null;
         blCosmetics = null;
@@ -4056,6 +4169,8 @@ function openFriendsModal() {
     if (!blAccount) return;
     bl_pushState({ modal: 'friends' });
     document.getElementById('friendsModal').style.display = 'flex';
+    document.getElementById('friendAddInput').value = '';
+    blResetFriendSearch();
     blRefreshFriends();
 }
 function closeFriendsModal() {
@@ -4212,15 +4327,64 @@ function blUpdateFriendsBadge() {
     }
 }
 
-async function blSendFriendRequest() {
+let blFriendSearchTarget = null; // username confirmed via View Account, ready to receive a request
+
+function blResetFriendSearch() {
+    blFriendSearchTarget = null;
+    const previewEl = document.getElementById('friendAddPreview');
+    if (previewEl) { previewEl.style.display = 'none'; previewEl.innerHTML = ''; }
+    const statusEl = document.getElementById('friendAddStatus');
+    if (statusEl) statusEl.innerText = '';
+}
+
+async function blSearchFriendAccount() {
     const target = document.getElementById('friendAddInput').value.trim();
     const statusEl = document.getElementById('friendAddStatus');
+    const previewEl = document.getElementById('friendAddPreview');
+    blFriendSearchTarget = null;
+    previewEl.style.display = 'none';
+    previewEl.innerHTML = '';
     if (!target) { statusEl.innerText = 'Enter a username first.'; return; }
+    statusEl.innerText = 'Searching...';
+    const [profResult, titlesResult] = await Promise.all([
+        blCallAccountRpc('get_player_profile', { p_username: target }),
+        blCallAccountRpc('get_player_titles', { p_username: target })
+    ]);
+    if (!profResult.ok) {
+        statusEl.innerText = profResult.error || 'Could not find that player.';
+        return;
+    }
+    statusEl.innerText = '';
+    blFriendSearchTarget = profResult.username;
+    const equippedTitle = (titlesResult && titlesResult.ok && titlesResult.equipped_title) ? TITLE_BY_ID_MAP[titlesResult.equipped_title] : null;
+    previewEl.style.display = 'block';
+    previewEl.innerHTML = `
+        <div class="friend-preview-card">
+            <div class="profile-avatar-circle" style="width:44px; height:44px; font-size:22px;">${profResult.avatar || '🧙'}</div>
+            <div class="friend-preview-main">
+                <div class="friend-preview-name">${blEscapeHtml(profResult.username)}</div>
+                ${equippedTitle ? `<div class="title-badge">🏅 ${blEscapeHtml(equippedTitle.name)}</div>` : ''}
+            </div>
+        </div>
+        <div class="friend-preview-actions">
+            <button class="account-btn" style="flex:1;" onclick="blSendFriendRequest()">Send Request</button>
+            <button class="account-btn account-btn-alt" style="flex:none;" onclick="openProfileModal('${blEscapeJs(profResult.username)}')">👤 Full Profile</button>
+        </div>
+    `;
+}
+
+async function blSendFriendRequest() {
+    if (!blFriendSearchTarget) return;
+    const target = blFriendSearchTarget;
+    const statusEl = document.getElementById('friendAddStatus');
     statusEl.innerText = 'Sending...';
     const result = await blCallAccountRpc('send_friend_request', { p_from_username: blAccount.username, p_to_username: target });
     if (result.ok) {
         statusEl.innerText = 'Request sent!';
         document.getElementById('friendAddInput').value = '';
+        document.getElementById('friendAddPreview').style.display = 'none';
+        document.getElementById('friendAddPreview').innerHTML = '';
+        blFriendSearchTarget = null;
         blRefreshFriends();
     } else {
         statusEl.innerText = result.error || 'Could not send request.';
