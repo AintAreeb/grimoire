@@ -397,6 +397,16 @@
             margin: 2px auto 0;
             filter: drop-shadow(0 0 3px rgba(224, 64, 251, 0.6));
         }
+
+        /* Wraps the shield badge, hex/health readout, and cleanse button so
+           their relative arrangement can be switched from stacked (default)
+           to side-by-side (mobile portrait only) without duplicating markup. */
+        .hex-row {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
         
         .action-panel { 
             display: flex; 
@@ -821,6 +831,21 @@
             }
             .shield-badge {
                 font-size: 6px;
+            }
+            /* Portrait phone only: lay the shield badge, hex/health, and
+               cleanse button out in a single row — shield to the left of
+               hex, cleanse to the right — instead of the default stack. */
+            .hex-row {
+                flex-direction: row;
+                justify-content: center;
+                align-items: center;
+                gap: 6px;
+            }
+            .hex-row .shield-badge {
+                margin-top: 0;
+            }
+            .hex-row .cleanse-badge {
+                margin: 0;
             }
         }
         /* Desktop only (1024px+): bump the shield badge up from its 8px
@@ -9123,9 +9148,11 @@ function renderScene() {
                 <div class="card-title${cardTitleClass(card.name)}">${card.name}</div>
                 <span class="card-tag">${card.tag}</span>
                 ${card.poisoned ? `<span class="poison-badge">☣️</span>` : ''}
-                ${gameState.p1KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
-                <div class="hearts">${heartsDisplay}</div>
-                ${doctorCleanseBtn}
+                <div class="hex-row">
+                    ${gameState.p1KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
+                    <div class="hearts">${heartsDisplay}</div>
+                    ${doctorCleanseBtn}
+                </div>
                 ${isEligibleAlly ? `<button class="btn target-btn" onclick="processSelectedTarget('${card.id}')">SELECT</button>` : ''}
                 ${canTakeAction ? buildDynamicActionPads(card, isLockedByCooldown) : ''}
             </div>
@@ -9240,8 +9267,10 @@ function renderScene() {
                 <span class="card-tag">${card.tag}</span>
                 ${card.poisoned ? `<span class="poison-badge">☣️</span>` : ''}
                 ${card.blockedCounter > 0 ? `<span class="blocked-badge">🔒${card.blockedCounter-1}</span>` : ''}
-                ${gameState.p2KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
-                <div class="hearts">${card.name === 'Spy' && !isDead ? '⬡ ∞' : (isDead ? '☠️ DEAD' : '⬡'.repeat(card.hex))}</div>
+                <div class="hex-row">
+                    ${gameState.p2KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
+                    <div class="hearts">${card.name === 'Spy' && !isDead ? '⬡ ∞' : (isDead ? '☠️ DEAD' : '⬡'.repeat(card.hex))}</div>
+                </div>
                 ${isEligibleEnemy ? `<button class="btn target-btn enemy-target-btn" onclick="processSelectedTarget('${card.id}')">CHOOSE</button>` : ''}
             </div>
         `;
