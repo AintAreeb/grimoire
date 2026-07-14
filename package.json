@@ -5,7 +5,8 @@
   "scripts": { "build": "echo 'Static site - nothing to compile'" },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
-    "@capacitor/core": "^6.1.2"
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/splash-screen": "^6.0.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.2",
