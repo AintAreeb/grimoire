@@ -10032,5 +10032,12 @@ function musicUpdateTimeline() {
 }
 setInterval(musicUpdateTimeline, 500);
 </script>
+<script>
+  document.addEventListener('deviceready', function () {
+    if (window.Capacitor?.Plugins?.StatusBar) {
+      window.Capacitor.Plugins.StatusBar.setOverlaysWebView({ overlay: true });
+    }
+  });
+</script>
 </body>
 </html>
