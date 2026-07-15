@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>grimoire</title>
     <style>
         /* Linear.app Premium Dark Theme Matrix */
@@ -11,6 +11,7 @@
             color: #e8e0c9; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; 
             padding: 24px; 
+            padding-top: calc(24px + env(safe-area-inset-top, 24px));
             margin: 0; 
             user-select: none;
             -webkit-font-smoothing: antialiased;
@@ -660,7 +661,7 @@
         }
 
         .back-fab-btn {
-            position: fixed; top: 14px; left: 14px; z-index: 950;
+            position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); left: 14px; z-index: 950;
             width: 36px; height: 36px; border-radius: 50%;
             background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
             color: #e8e0c9; font-size: 16px; cursor: pointer;
@@ -670,7 +671,7 @@
         .back-fab-btn:active { background: #2a2932; }
 
         .settings-fab-btn {
-            position: fixed; top: 14px; right: 14px; z-index: 950;
+            position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); right: 14px; z-index: 950;
             width: 36px; height: 36px; border-radius: 50%;
             background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
             color: #e8e0c9; font-size: 16px; cursor: pointer;
@@ -1592,7 +1593,7 @@
         <a id="webDownloadBanner" href="https://github.com/AintAreeb/grimoire/releases/latest/download/grimoire.apk"
            target="_blank" rel="noopener noreferrer"
            title="Download the app"
-           style="display:none; position:fixed; top:56px; right:14px; z-index:950;
+           style="display:none; position:fixed; top:calc(56px + env(safe-area-inset-top, 0px)); right:14px; z-index:950;
                   width:36px; height:36px; border-radius:50%;
                   background:#1a1922; border:1px solid rgba(255,255,255,0.12);
                   color:#e8e0c9; font-size:16px; cursor:pointer;
