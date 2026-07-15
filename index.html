@@ -197,6 +197,32 @@
             filter: grayscale(100%);
         }
         
+        /* A dead card that's also an eligible revive target (Mage) needs to
+           fight its way back out of the dimmed/grayscale dead styling above —
+           otherwise the green valid-target glow and SELECT button read as
+           barely-there, making revivable corpses look ineligible. */
+        .card.dead.valid-target {
+            opacity: 0.85;
+            filter: grayscale(40%);
+            border-color: rgba(0, 255, 0, 0.75);
+            box-shadow: 0 0 26px rgba(0, 255, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+        }
+        
+        .card.dead.valid-target .card-title,
+        .card.dead.valid-target .card-tag,
+        .card.dead.valid-target .hearts {
+            opacity: 1;
+        }
+        
+        .card.dead.valid-target .btn.target-btn {
+            animation: revivePulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes revivePulse {
+            0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 0, 0.4); transform: scale(1); }
+            50% { box-shadow: 0 0 18px rgba(0, 255, 0, 0.9); transform: scale(1.05); }
+        }
+        
         .card.imprisoned { 
             border-color: rgba(255, 170, 0, 0.3); 
             background: linear-gradient(180deg, rgba(38, 28, 12, 0.3) 0%, rgba(20, 15, 8, 0.15) 100%); 
@@ -1591,7 +1617,6 @@
     <div id="setupView" class="setup-screen">
         <button class="settings-fab-btn" onclick="openSettingsModal()" title="Settings">⚙️</button>
         <a id="webDownloadBanner" href="https://github.com/AintAreeb/grimoire/releases/latest/download/grimoire.apk"
-           target="_blank" rel="noopener noreferrer"
            title="Download the app"
            style="display:none; position:fixed; top:calc(56px + env(safe-area-inset-top, 0px)); right:14px; z-index:950;
                   width:36px; height:36px; border-radius:50%;
@@ -6315,7 +6340,7 @@ function hasValidTargets(card, allies, enemies) {
     }
     if (card.name === 'Therapist') return relevantRecord !== null && enemies.some(c => c.hex > 0 && !c.imprisoned);
     if (card.name === 'Reporter') return allies.some(c => c.hex > 0 && c.hex < c.maxHex);
-    if (card.name === 'Warden') return allies.some(c => c.imprisoned && c.name !== 'Spy') && enemies.some(c => c.hex > 0 && !c.imprisoned && !c.isHeroic);
+    if (card.name === 'Warden') return allies.some(c => c.imprisoned && c.name !== 'Spy') && enemies.some(c => c.hex > 0 && !c.imprisoned && !c.isHeroic && !isImprisonMoveWasted(c));
     if (card.name === 'Actor') return true;
     if (card.name === 'Princess') return relevantRecord !== null;
 
@@ -7609,6 +7634,13 @@ function processSelectedTarget(targetId) {
         renderScene();
         return;
     }
+    if (baseMove === 'warden_jailbreak') {
+        gameState.targetingMode.firstTargetId = targetId;
+        gameState.targetingMode.type = 'warden_jail_step2';
+        document.getElementById('targetBar').innerText = "⚖️ WARDEN: SELECT ENEMY TO IMPRISON";
+        renderScene();
+        return;
+    }
 
     if (actorCard.name !== 'Spy' && !actorCard.isHeroic) actorCard.hex -= 1;
     actorCard.hasActivity = true;
@@ -7716,18 +7748,13 @@ function processSelectedTarget(targetId) {
         writeLog(`🔮 Your Witch attacks and poisons ${enemy.name}.`);
         queueRecap('poison', enemy);
     }
-    else if (baseMove === 'warden_jailbreak') {
-        ally.imprisoned = false;
-        writeLog(`⚖️ Your Warden breaks ${ally.name} free from imprisonment!`);
-        queueRecap('freed', ally);
-        let framePool = gameState.p2.filter(c => c.hex > 0 && !c.imprisoned && !c.isHeroic);
-        if (framePool.length > 0) {
-            let framed = framePool[Math.floor(Math.random() * framePool.length)];
-            applyShieldedImprison(framed);
-            writeLog(`⚖️ Warden frames enemy ${framed.name}, who is hauled off to prison in ${ally.name}'s place!`);
-        } else {
-            writeLog(`⚖️ Warden found no one left to frame.`);
-        }
+    else if (baseMove === 'warden_jail_step2') {
+        let freedAlly = gameState.p1.find(c => c.id === gameState.targetingMode.firstTargetId);
+        freedAlly.imprisoned = false;
+        writeLog(`⚖️ Your Warden breaks ${freedAlly.name} free from imprisonment!`);
+        queueRecap('freed', freedAlly);
+        applyShieldedImprison(enemy);
+        writeLog(`⚖️ Warden frames enemy ${enemy.name}, who is hauled off to prison in ${freedAlly.name}'s place!`);
     }
 
     if (actorCard.cooldown === 'consecutive') actorCard.lastUsedRound = gameState.roundCount;
@@ -8059,7 +8086,7 @@ function getBotCandidatePool(actor, enemies) {
 // identically to how the player's versions resolve. Returns true if the
 // role had a usable target/effect this turn, false otherwise.
 function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
-    let enemyPool = getBotCandidatePool(aiActor, gameState.p1);
+    let enemyPool = getBotCandidatePool(aiActor, gameState.p1.filter(c => c.hex > 0 && !c.imprisoned));
     let allyPool = gameState.p2.filter(c => c.id !== aiActor.id && c.hex > 0 && !c.imprisoned);
     gameState.p2LastMoveRole = null;
     let copyExcluded = isBartenderCopyExcludedActor(aiActor);
@@ -8802,7 +8829,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     }
                 } else if (aiActor.name === 'Mecha') {
                     let partnerPool = gameState.p2.filter(c => c.id !== aiActor.id && c.hex > 0 && !c.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(c.name));
-                    let enemyPool = getBotCandidatePool(aiActor, gameState.p1);
+                    let enemyPool = getBotCandidatePool(aiActor, gameState.p1.filter(c => c.hex > 0 && !c.imprisoned));
                     if (partnerPool.length > 0 && enemyPool.length > 0) {
                         let partner = partnerPool[Math.floor(Math.random() * partnerPool.length)];
                         let pName = partner.name;
@@ -8887,19 +8914,15 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     aiActor.hex = 0;
                 } else if (aiActor.name === 'Warden') {
                     let imprisonedPool = gameState.p2.filter(c => c.imprisoned && c.name !== 'Spy');
-                    if (imprisonedPool.length > 0) {
+                    let framePool = gameState.p1.filter(c => c.hex > 0 && !c.imprisoned && !c.isHeroic && !isImprisonMoveWasted(c));
+                    if (imprisonedPool.length > 0 && framePool.length > 0) {
                         let freed = imprisonedPool[Math.floor(Math.random() * imprisonedPool.length)];
                         freed.imprisoned = false;
                         writeLog(`⚖️ Bot Warden breaks ${freed.name} free from imprisonment!`);
                         queueRecap('freed', freed);
-                        let framePool = gameState.p1.filter(c => c.hex > 0 && !c.imprisoned && !c.isHeroic);
-                        if (framePool.length > 0) {
-                            let framed = framePool[Math.floor(Math.random() * framePool.length)];
-                            applyShieldedImprison(framed);
-                            writeLog(`⚖️ Bot Warden frames your ${framed.name}, who is hauled off to prison in ${freed.name}'s place!`);
-                        } else {
-                            writeLog(`⚖️ Bot Warden found no one left to frame.`);
-                        }
+                        let framed = pickBotTarget(framePool, gameState.difficulty);
+                        applyShieldedImprison(framed);
+                        writeLog(`⚖️ Bot Warden frames your ${framed.name}, who is hauled off to prison in ${freed.name}'s place!`);
                     } else {
                         executedAction = false;
                     }
@@ -9349,6 +9372,7 @@ function renderScene() {
                             if ((card.name !== 'Spy' || (act && act.hex === 1)) && !isHarmMoveWasted(card)) isEligibleEnemy = true;
                         }
                         if (m === 'witch_poison' && !isWitchMoveWasted(card)) isEligibleEnemy = true;
+                        if (m === 'warden_jail_step2' && !isImprisonMoveWasted(card)) isEligibleEnemy = true;
                         if (m === 'lawyer_lock') {
                             if ((card.tag === 'Criminal' || card.tag === 'Law & Order') && card.hasActivity && !isImprisonMoveWasted(card)) {
                                 isEligibleEnemy = true;
