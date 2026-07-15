@@ -5,7 +5,7 @@
   "bundledWebRuntime": false,
   "android": { "allowMixedContent": true },
   "server": {
-    "url": "https://aintareeb.github.io/grimoire/",
+    "url": "https://grimoire.eu.cc/",
     "cleartext": true
   },
   "plugins": {
