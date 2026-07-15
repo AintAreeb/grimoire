@@ -4,6 +4,10 @@
   "webDir": "www",
   "bundledWebRuntime": false,
   "android": { "allowMixedContent": true },
+  "server": {
+    "url": "https://aintareeb.github.io/grimoire/",
+    "cleartext": true
+  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 2000,
