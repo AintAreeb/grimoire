@@ -34,10 +34,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y imagemagick
           mkdir -p resources
           convert -size 1024x1024 xc:"#080710" \
-            \( icon.png -resize 620x620 \) -gravity center -composite \
+            \( grimoire.png -resize 620x620 \) -gravity center -composite \
             resources/icon.png
           convert -size 2732x2732 xc:"#080710" \
-            \( icon.png -resize 1200x1200 \) -gravity center -composite \
+            \( grimoire.png -resize 1200x1200 \) -gravity center -composite \
             resources/splash.png
       - name: Generate icon and splash screen
         run: |
