@@ -3410,7 +3410,7 @@ function renderProfileCosmetics() {
                 <span class="guide-card-name">${isOwned ? '🎴' : '🔒'} ${def.name}</span>
                 ${actionHtml}
             </div>
-            <div class="guide-card-desc">${def.desc}${!isOwned && !def.always ? ` · 🎟️ ${def.cost} Grims` : ''}</div>
+            <div class="guide-card-desc">${def.desc}</div>
         </div>`;
     }
 
@@ -3616,7 +3616,7 @@ function renderProfileInfo() {
             return `<div class="profile-avatar-opt${a === p.avatar ? ' profile-avatar-selected' : ''}${owned ? '' : ' profile-avatar-locked'}" onclick="selectAvatar('${a}')" title="${owned ? '' : `${AVATAR_COST} Grims`}">${a}${owned ? '' : `<span class="avatar-cost-badge">🔒</span>`}</div>`;
         };
         html += `<div id="avatarPickerRow" style="display:none;">
-            <div class="guide-card-desc" style="margin-bottom:6px;">🔒 = ${AVATAR_COST} Grims · 🎟️ ${blCurrency ? blCurrency.balance : 0}</div>
+            <div class="guide-card-desc" style="margin-bottom:6px;">🔒 Locked avatars cost ${AVATAR_COST} Grims each — Balance: 🎟️ ${blCurrency ? blCurrency.balance : 0}</div>
             <div class="profile-avatar-grid">${PROFILE_AVATAR_OPTIONS.map(avatarOpt).join('')}</div>
             <div id="avatarMoreRow" style="display:none; margin-top:8px; max-height:220px; overflow-y:auto; border-radius:8px; background:rgba(255,255,255,0.02); padding:6px;">
                 <div class="profile-avatar-grid">${PROFILE_AVATAR_OPTIONS_MORE.map(avatarOpt).join('')}</div>
