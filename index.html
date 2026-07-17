@@ -6336,6 +6336,59 @@ function abortTargetingSequence() {
     renderScene();
 }
 
+// Determines whether `card` is a legal target for a Sorcerer-hijacked use of
+// `originalType`'s ability. This MUST mirror the exact restrictions the real
+// card is held to (tag-based Entity immunity, wasted-move filtering,
+// role-specific tag/activity requirements, Spy/Hood/Ninja exceptions, etc) —
+// the identity of the Sorcerer performing the hijack (its own tag, its own
+// hex) must never loosen or tighten the hijacked role's real rules. This is
+// what stops, e.g., a hijacked Killer (a non-Mystic role that could never
+// normally touch an Entity) from being able to strike a Dementor just
+// because the Sorcerer itself happens to be Mystic-tagged.
+function isValidSorcererHijackTarget(originalType, card, actorCard) {
+    if (!card || card.hex <= 0 || card.imprisoned || card.isHeroic) return false;
+
+    let roleDef = CARD_POOL.find(c => c.name === originalType);
+    let roleTag = roleDef ? roleDef.tag : null;
+    let roleIsWraith = (originalType === 'Wraith');
+
+    // General Entity immunity: only Mystic-tagged roles (or Wraith) can ever
+    // target an Entity, exactly like every direct play. Knight has its own
+    // special-cased "last resort" Entity handling below.
+    if (card.tag === 'Entity' && roleTag !== 'Mystic' && !roleIsWraith && originalType !== 'Knight') {
+        return false;
+    }
+
+    if (originalType === 'Killer') return !isHarmMoveWasted(card);
+    if (originalType === 'Dictator') return !isImprisonMoveWasted(card);
+    if (originalType === 'Lawyer') return (card.tag === 'Criminal' || card.tag === 'Law & Order') && !!card.hasActivity && !isImprisonMoveWasted(card);
+    if (originalType === 'Witch') return !isWitchMoveWasted(card);
+    if (originalType === 'Robber') return card.tag !== 'Criminal' && card.tag !== 'Entity' && !isHarmMoveWasted(card);
+    if (originalType === 'Cop') return (card.tag === 'Criminal' || card.tag === 'Law & Order') && !isHarmMoveWasted(card);
+    if (originalType === 'Spy') {
+        if (card.name === 'Spy') {
+            let otherOptions = gameState.p2.filter(e => e.hex > 0 && !e.imprisoned && e.name !== 'Spy' && !isHarmMoveWasted(e));
+            return otherOptions.length === 0;
+        }
+        return !isHarmMoveWasted(card);
+    }
+    if (originalType === 'Knight') {
+        if (card.tag === 'Entity') {
+            let otherOptions = gameState.p2.filter(e => e.hex > 0 && !e.imprisoned && !e.isHeroic && e.tag !== 'Entity' && !isHarmMoveWasted(e));
+            return otherOptions.length === 0 && !isHarmMoveWasted(card);
+        }
+        return !isHarmMoveWasted(card);
+    }
+    if (originalType === 'Ninja') return (card.name !== 'Spy' || (actorCard && actorCard.hex === 1)) && !isHarmMoveWasted(card);
+    if (originalType === 'Hood') return (card.name !== 'Spy' || (actorCard && actorCard.hex === 1)) && !isHarmMoveWasted(card);
+    if (originalType === 'Wraith') return (card.tag === 'Mystic' || card.tag === 'Entity') && !isHarmMoveWasted(card);
+    if (originalType === 'Jinn') return true;
+    if (originalType === 'Singer') return true;
+
+    // Fallback for any other simple 1-damage role.
+    return !isHarmMoveWasted(card);
+}
+
 function hasValidTargets(card, allies, enemies) {
     // This function is called for BOTH player cards (allies=p1, enemies=p2)
     // and bot cards (allies=p2, enemies=p1). The reactive cards below need
@@ -7501,6 +7554,17 @@ function processSelectedTarget(targetId) {
 
         let hijackedCard = gameState.p1.find(c => c.id === meta.hijackedCardId) || gameState.p2.find(c => c.id === meta.hijackedCardId);
 
+        // Defense-in-depth: the target list is already gated by
+        // isValidSorcererHijackTarget above, but re-check here too so a
+        // stale/unexpected state can never let a hijacked role's effect
+        // land somewhere the real card could never touch (e.g. a hijacked
+        // Killer executing a Dementor).
+        if (!isValidSorcererHijackTarget(originalType, enemy, actorCard)) {
+            writeLog(`🔮 Control Sequence: ${originalType} had no legal target — hijack fizzled.`);
+            concludeTargetedMove(actorCard.id, baseMove);
+            return;
+        }
+
         if (originalType === 'Killer') {
             applyShieldedExecution(enemy);
             writeLog(`🔮 Control Sequence: Killer executed ${enemy.name}!`);
@@ -8075,9 +8139,16 @@ function renderUndoUI() {
 // allow, mirroring the same restrictions hasValidTargets()/processSelectedTarget()
 // enforce for the player (e.g. Cop only strikes Criminal/Law & Order tags,
 // Robber's normal siphon can't hit Criminal tags, Hood can't hit Spy at full hex).
-function getBotCandidatePool(actor, enemies) {
+function getBotCandidatePool(actor, enemies, roleOverride) {
     let harmful = enemies.filter(c => !c.isHeroic);
-    if (actor.tag !== 'Mystic' && actor.name !== 'Wraith') harmful = harmful.filter(c => c.tag !== 'Entity');
+    // When `actor` is mimicking a different role (Actor/Dementor mimic,
+    // Sorcerer hijack), Entity-immunity must be judged against the REAL
+    // role's tag (roleOverride), not the mimicking card's own tag — e.g. a
+    // Mystic-tagged Sorcerer hijacking a Killer must not gain Killer the
+    // ability to strike Entities just because the Sorcerer itself is Mystic.
+    let effectiveTag = roleOverride ? ((CARD_POOL.find(c => c.name === roleOverride) || {}).tag) : actor.tag;
+    let effectiveName = roleOverride || actor.name;
+    if (effectiveTag !== 'Mystic' && effectiveName !== 'Wraith') harmful = harmful.filter(c => c.tag !== 'Entity');
     // Same wasted-move exclusions the player's target list is held to (see
     // isHarmMoveWasted/isImprisonMoveWasted/isWitchMoveWasted) — the bot
     // should never spend its move attacking a K-Shielded card already
@@ -8103,7 +8174,7 @@ function getBotCandidatePool(actor, enemies) {
 // identically to how the player's versions resolve. Returns true if the
 // role had a usable target/effect this turn, false otherwise.
 function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
-    let enemyPool = getBotCandidatePool(aiActor, gameState.p1.filter(c => c.hex > 0 && !c.imprisoned));
+    let enemyPool = getBotCandidatePool(aiActor, gameState.p1.filter(c => c.hex > 0 && !c.imprisoned), roleName);
     let allyPool = gameState.p2.filter(c => c.id !== aiActor.id && c.hex > 0 && !c.imprisoned);
     gameState.p2LastMoveRole = null;
     let copyExcluded = isBartenderCopyExcludedActor(aiActor);
@@ -9341,9 +9412,16 @@ function renderScene() {
             const m = gameState.targetingMode.type;
             const act = gameState.p1.find(c => c.id === gameState.targetingMode.actorId);
             
-            if (m === 'sorcerer_hijacked_action' && !isDead && !card.imprisoned && !card.isHeroic && gameState.targetingMode.metadata.originalType !== 'Doctor') {
-                isEligibleEnemy = true;
-            } else if (m === 'sorcerer_hijacked_singer_step2' && !isDead && !card.imprisoned && !card.isHeroic) {
+            if (m === 'sorcerer_hijacked_action' && gameState.targetingMode.metadata.originalType !== 'Doctor') {
+                // Gate the hijacked action by the REAL restrictions of the
+                // role being hijacked (Entity immunity, tag requirements,
+                // wasted-move filtering, etc), not a blanket allow-all —
+                // otherwise e.g. a hijacked Killer could strike a Dementor,
+                // which the real Killer could never do.
+                if (isValidSorcererHijackTarget(gameState.targetingMode.metadata.originalType, card, act)) {
+                    isEligibleEnemy = true;
+                }
+            } else if (m === 'sorcerer_hijacked_singer_step2' && !isDead && !card.imprisoned && !card.isHeroic && card.tag !== 'Entity') {
                 if (card.id === gameState.targetingMode.firstTargetId) {
                     isSelectedFirst = true;
                 } else {
@@ -9351,7 +9429,7 @@ function renderScene() {
                     let wouldKillFirst = (enemy1.hex === 1);
                     let wouldKillSecond = (card.hex === 1);
                     if (wouldKillFirst && wouldKillSecond) {
-                        let otherOptions = gameState.p2.filter(e => e.hex > 0 && !e.imprisoned && !e.isHeroic && e.id !== enemy1.id && e.id !== card.id && e.hex > 1);
+                        let otherOptions = gameState.p2.filter(e => e.hex > 0 && !e.imprisoned && !e.isHeroic && e.tag !== 'Entity' && e.id !== enemy1.id && e.id !== card.id && e.hex > 1);
                         if (otherOptions.length === 0) isEligibleEnemy = true;
                     } else {
                         isEligibleEnemy = true;
