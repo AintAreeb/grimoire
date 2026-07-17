@@ -1708,6 +1708,7 @@
                             <div class="account-badge-row">
                                 <span id="accountFavBadge" class="profile-fav-badge profile-fav-empty" style="display:none;"></span>
                                 <span id="accountRankBadge" class="profile-fav-badge" style="display:none; background:transparent;"></span>
+                                <span id="accountCurrencyBadge" class="profile-fav-badge" style="display:none; background:transparent;"></span>
                             </div>
                         </div>
                     </div>
@@ -2773,12 +2774,11 @@ async function blRefreshMyRanking() {
     await blRecordCosmeticRankPeak();
 }
 
-// Computes the adaptive Ritual Point delta for the just-finished match and
-// submits it. `mine` / `sum` are the same per-card stat helpers already
-// built in recordMultiplayerMatchIfNeeded, so this stays in lockstep with
-// whatever the match summary screen shows.
-async function recordRankingResultIfNeeded(result, mine, sum) {
-    if (!blAccount) return;
+// Pure delta calculation, shared by the real ranking system (below) and the
+// Grims currency award (see awardMatchCurrencyIfNeeded) so the two always
+// agree on what a match was "worth" — whether or not RP actually gets
+// submitted for it (bot/local matches simulate this without recording RP).
+function computeRankingDelta(result, sum, tierIndex) {
     let aliveCards = gameState.p1.filter(c => c.hex > 0 && !c.imprisoned).length;
     let remainingHex = gameState.p1.reduce((a, c) => a + Math.max(0, c.hex === Infinity ? 0 : c.hex), 0);
     let overallRating = statsComputeOverallRating();
@@ -2789,20 +2789,28 @@ async function recordRankingResultIfNeeded(result, mine, sum) {
         + remainingHex * RANK_PTS.REMAINING_HEX
         + overallRating;
 
-    let currentTierIndex = blRanking ? getTierForPoints(blRanking.points).index : 0;
-    let { winMult, lossMult } = rankAdaptiveMultipliers(currentTierIndex);
+    let { winMult, lossMult } = rankAdaptiveMultipliers(tierIndex);
 
-    let delta;
     if (result === 'win') {
-        delta = Math.round((RANK_PTS.WIN + performance) * winMult);
+        return Math.round((RANK_PTS.WIN + performance) * winMult);
     } else if (result === 'draw') {
-        delta = Math.round(performance * 0.5 * winMult);
+        return Math.round(performance * 0.5 * winMult);
     } else {
         // A strong showing in a loss softens the penalty; a total wipeout
         // takes the full hit. Never lets performance flip a loss positive.
         let softened = Math.max(15, RANK_PTS.LOSS_BASE - performance * 0.15);
-        delta = -Math.round(softened * lossMult);
+        return -Math.round(softened * lossMult);
     }
+}
+
+// Computes the adaptive Ritual Point delta for the just-finished match and
+// submits it. `mine` / `sum` are the same per-card stat helpers already
+// built in recordMultiplayerMatchIfNeeded, so this stays in lockstep with
+// whatever the match summary screen shows.
+async function recordRankingResultIfNeeded(result, mine, sum) {
+    if (!blAccount) return;
+    let currentTierIndex = blRanking ? getTierForPoints(blRanking.points).index : 0;
+    let delta = computeRankingDelta(result, sum, currentTierIndex);
 
     let rpcResult = await blCallAccountRpc('record_ranking_result', {
         p_username: blAccount.username,
@@ -3209,6 +3217,57 @@ function cosmeticGoal(def) {
 let blCosmetics = null; // { earnedSkins, equippedSkin, earnedThemes, equippedTheme, peakRankingPoints } | null
 let blProfileCosmetics = null; // cosmetics for whichever profile is open in the modal
 
+// ============================================================================
+// CURRENCY ("Grims") — see grimoire_currency_setup.sql for the one-time,
+// additive database setup. No separate earning rule of its own: every
+// finished match (any mode — bot, local, or multiplayer) pays out exactly
+// the same number of Grims as the Ritual Points that match was worth, using
+// computeRankingDelta() (shared with the real ranking system below). Bot/
+// local matches never touch actual RP, but the *would-be* RP is still
+// simulated from the same formula so the reward feels consistent everywhere.
+let blCurrency = null; // { balance } | null
+
+async function blRefreshCurrency() {
+    if (!blAccount) { blCurrency = null; renderCurrencyUI(); return; }
+    const result = await blCallAccountRpc('get_player_currency', { p_username: blAccount.username });
+    blCurrency = { balance: (result && result.ok) ? (result.balance || 0) : 0 };
+    renderCurrencyUI();
+}
+
+function renderCurrencyUI() {
+    const badge = document.getElementById('accountCurrencyBadge');
+    if (!badge) return;
+    if (blCurrency) {
+        badge.style.display = 'inline-block';
+        badge.innerText = `🎟️ ${blCurrency.balance}`;
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+// Called once per finished match (any mode) if logged in. Mirrors whatever
+// Ritual Points that match would be worth — see computeRankingDelta() —
+// except Grims never go negative: a bad-performance "loss" in RP terms
+// still pays out a small consolation amount instead of costing Grims.
+const GRIMS_CONSOLATION_MIN = 5;
+async function awardMatchCurrencyIfNeeded() {
+    if (!blAccount) return;
+    let p1Alive = gameState.p1.some(c => c.hex > 0 && !c.imprisoned);
+    let p2Alive = gameState.p2.some(c => c.hex > 0 && !c.imprisoned);
+    let result = (p1Alive && !p2Alive) ? 'win' : ((!p1Alive && p2Alive) ? 'loss' : 'draw');
+    let mine = Object.values(matchStats).filter(s => s.side === 'p1');
+    let sum = (key) => mine.reduce((a, s) => a + (s[key] || 0), 0);
+    let tierIndex = blRanking ? getTierForPoints(blRanking.points).index : 0;
+    let delta = computeRankingDelta(result, sum, tierIndex);
+    let amount = Math.max(delta, GRIMS_CONSOLATION_MIN);
+    const rpcResult = await blCallAccountRpc('grant_match_currency', { p_username: blAccount.username, p_amount: amount });
+    if (rpcResult && rpcResult.ok) {
+        blCurrency = { balance: rpcResult.balance };
+        writeLog(`🎟️ +${amount} Grims earned`);
+        renderCurrencyUI();
+    }
+}
+
 function blSkinClassById(skinId) {
     if (!skinId) return '';
     const def = CARD_SKIN_DEFS.find(s => s.id === skinId);
@@ -3456,6 +3515,7 @@ function renderProfileTitles() {
 // player_profiles + match_history tables and 4 RPC functions).
 // ============================================================================
 const PROFILE_AVATAR_OPTIONS = ['🧙','🧛','🧟','🧞','👹','👺','💀','👻','🤖','🥷','🕵️','🦹','🧑‍⚖️','👑','🐺','🦇','🐍','🔪','⚔️','🛡️','🔮','🩸','⚙️','🎭','🕷️','🦂','🐉','👁️','🔥','❄️','⚡','🌙','☠️','🗡️','🏹','🪓','⛓️','🕯️','🧪','⚱️','🦴','🐙','🦑','🕸️','🌑','🎃','🧌','🧝','🧚','🥋','🎩','💣','🔫','🚬','🕶️','🎯','🧿','🪦','🦉','🦅','🐊'];
+const PROFILE_AVATAR_OPTIONS_MORE = ["👾","👽","🤖","💫","💥","💎","🦾","👨🏻‍✈️","🧑🏻‍🚀","🕵🏻‍♂️","👮🏻‍♂️","👮🏻‍♀️","👨🏻‍👩🏻‍✈️","🕵🏼‍♀️","💂🏻‍♂️","💂🏻‍♀️","🧜🏻‍♂️","🧛🏻‍♂️","🧛🏻‍♀️","🧞‍♂️","🧞‍♀️","🏇","🤺","🐜","🦈","🪸","🏺","🍭","🍬","🦞","🦀","🦐","🎑","🧧","🎆","🎇","🧨","✨","🏆","🎮","🥋","🎀","🌋","🌁","🌃","🏙️","🌄","🌅","🌆","🌇","🌉","♨️","⛩️","🛕","🗼","🗽","🕌","🎡","🌠","🌌","☃️","🛸","🚀","🪂","⚓","⛵","🚨","🏜️","🏞️","🏚️","⚰️","💊","⚖️","🦯","🔗","🪝","🗡️","🎓","🚫","🇧🇩","🇵🇸","🏁","🚩","🎌","🏴","🏳️","🏴‍☠️","🇦🇶","🇦🇴","🇦🇲","🇦🇱","🇦🇮","🇦🇬","🇦🇫","🇦🇪","🇦🇩","🇦🇨","🇦🇷","🇦🇸","🇦🇹","🇦🇺","🇦🇼","🇦🇽","🇦🇿","🇧🇦","🇧🇧","🇧🇴","🇧🇳","🇧🇲","🇧🇱","🇧🇯","🇧🇮","🇧🇭","🇧🇬","🇧🇫","🇧🇪","🇧🇶","🇧🇷","🇧🇸","🇧🇻","🇧🇹","🇧🇼","🇧🇾","🇧🇿","🇨🇦","🇨🇨","🇨🇴","🇨🇳","🇨🇲","🇨🇱","🇨🇰","🇨🇮","🇨🇭","🇨🇬","🇨🇫","🇨🇩","🇨🇵","🇨🇷","🇨🇺","🇨🇻","🇨🇼","🇨🇽","🇨🇾","🇨🇿","🇩🇪","🇩🇬","🇪🇭","🇪🇬","🇪🇪","🇪🇨","🇪🇦","🇩🇿","🇩🇴","🇩🇲","🇩🇰","🇩🇯","🇪🇷","🇪🇸","🇪🇹","🇪🇺","🇫🇮","🇫🇯","🇫🇰","🇫🇲","🇫🇴","🇫🇷","🇬🇲","🇬🇱","🇬🇮","🇬🇭","🇬🇬","🇬🇫","🇬🇪","🇬🇩","🇬🇧","🇬🇦","🇬🇳","🇬🇵","🇬🇶","🇬🇷","🇬🇸","🇬🇹","🇬🇺","🇬🇼","🇬🇾","🇭🇰","🇮🇲","🇮🇪","🇮🇩","🇮🇨","🇭🇺","🇭🇹","🇭🇷","🇭🇳","🇭🇲","🇮🇳","🇮🇴","🇮🇶","🇮🇷","🇮🇸","🇮🇹","🇯🇪","🇯🇲","🇯🇴","🇯🇵","🇰🇾","🇰🇼","🇰🇷","🇰🇵","🇰🇳","🇰🇲","🇰🇮","🇰🇭","🇰🇬","🇰🇪","🇰🇿","🇱🇦","🇱🇧","🇱🇨","🇱🇮","🇱🇰","🇱🇷","🇱🇸","🇱🇹","🇱🇺","🇲🇰","🇲🇭","🇲🇬","🇲🇫","🇲🇪","🇲🇩","🇲🇨","🇲🇦","🇱🇾","🇱🇻","🇲🇱","🇲🇲","🇲🇳","🇲🇴","🇲🇶","🇲🇵","🇲🇷","🇲🇸","🇲🇹","🇲🇺","🇳🇬","🇳🇫","🇳🇪","🇳🇨","🇳🇦","🇲🇿","🇲🇾","🇲🇽","🇲🇼","🇲🇻","🇵🇪","🇵🇦","🇴🇲","🇳🇿","🇳🇺","🇳🇷","🇳🇵","🇳🇴","🇳🇱","🇳🇮","🇵🇹","🇵🇷","🇵🇳","🇵🇲","🇵🇱","🇵🇰","🇵🇭","🇵🇬","🇵🇫","🇵🇼","🇵🇾","🇶🇦","🇷🇪","🇷🇴","🇷🇸","🇸🇯","🇷🇺","🇷🇼","🇸🇦","🇸🇧","🇸🇲","🇸🇱","🇸🇰","🇸🇮","🇸🇭","🇸🇬","🇸🇪","🇸🇩","🇸🇨","🇸🇳","🇸🇴","🇸🇷","🇸🇸","🇸🇹","🇸🇻","🇸🇽","🇸🇾","🇸🇿","🇹🇦","🇹🇳","🇹🇲","🇹🇱","🇹🇰","🇹🇯","🇹🇭","🇹🇬","🇹🇫","🇹🇩","🇹🇨","🇺🇳","🇺🇲","🇺🇬","🇺🇦","🇹🇿","🇹🇼","🇹🇻","🇹🇹","🇹🇷","🇹🇴","🇺🇸","🇺🇾","🇺🇿","🇻🇦","🇻🇨","🇻🇪","🇻🇬","🇻🇮","🇻🇳","🇻🇺","🏴󠁧󠁢󠁳󠁣󠁴󠁿","🏴󠁧󠁢󠁥󠁮󠁧󠁿","🇿🇼","🇿🇲","🇿🇦","🇾🇹","🇾🇪","🇽🇰","🇼🇸","🇼🇫","🏴󠁧󠁢󠁷󠁬󠁳󠁿"];
 
 let blProfileTargetUsername = null; // whose profile is currently open in the modal
 let blProfileIsSelf = true;
@@ -3561,6 +3621,10 @@ function renderProfileInfo() {
     if (blProfileIsSelf) {
         html += `<div id="avatarPickerRow" style="display:none;">
             <div class="profile-avatar-grid">${PROFILE_AVATAR_OPTIONS.map(a => `<div class="profile-avatar-opt${a === p.avatar ? ' profile-avatar-selected' : ''}" onclick="selectAvatar('${a}')">${a}</div>`).join('')}</div>
+            <div id="avatarMoreRow" style="display:none; margin-top:8px; max-height:220px; overflow-y:auto; border-radius:8px; background:rgba(255,255,255,0.02); padding:6px;">
+                <div class="profile-avatar-grid">${PROFILE_AVATAR_OPTIONS_MORE.map(a => `<div class="profile-avatar-opt${a === p.avatar ? ' profile-avatar-selected' : ''}" onclick="selectAvatar('${a}')">${a}</div>`).join('')}</div>
+            </div>
+            <button id="avatarMoreToggleBtn" class="profile-fav-picker-btn" style="margin-top:8px;" onclick="toggleMoreAvatars()">See more ▾</button>
         </div>
         <div class="guide-section-label">Bio</div>
         <textarea id="profileBioInput" class="profile-bio-textarea" maxlength="140" placeholder="Say something about yourself...">${blEscapeHtml(p.bio || '')}</textarea>
@@ -3592,6 +3656,14 @@ function renderProfileInfo() {
 function toggleAvatarPicker() {
     const row = document.getElementById('avatarPickerRow');
     if (row) row.style.display = (row.style.display === 'none') ? 'block' : 'none';
+}
+function toggleMoreAvatars() {
+    const row = document.getElementById('avatarMoreRow');
+    const btn = document.getElementById('avatarMoreToggleBtn');
+    if (!row) return;
+    const showing = row.style.display !== 'none';
+    row.style.display = showing ? 'none' : 'block';
+    if (btn) btn.innerText = showing ? 'See more ▾' : 'See less ▴';
 }
 async function selectAvatar(avatar) {
     if (!blAccount) return;
@@ -4404,6 +4476,7 @@ function blRenderAccountUI() {
         blRefreshOwnFavBadge();
         blRefreshMyRanking();
         blRefreshCosmetics();
+        blRefreshCurrency();
         blFlushPendingMatches();
     } else {
         loggedOut.style.display = 'block';
@@ -4416,6 +4489,8 @@ function blRenderAccountUI() {
         blRanking = null;
         blProfileTitles = null;
         blCosmetics = null;
+        blCurrency = null;
+        renderCurrencyUI();
         applyEquippedBoardTheme();
         blRenderRankBadge();
     }
@@ -9476,6 +9551,7 @@ function renderScene() {
             matchRecorded = true;
             recordMultiplayerMatchIfNeeded();
             recordTitleProgressIfNeeded();
+            awardMatchCurrencyIfNeeded();
         }
     } else {
         document.getElementById('turnIndicator').innerText = gameState.currentTurn === 1 ? "YOUR TURN" : (mp.isMultiplayer ? "OPPONENT'S TURN..." : "BOT PROCESSING...");
