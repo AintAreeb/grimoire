@@ -3680,6 +3680,7 @@ async function buyAvatar(avatar) {
         writeLog(`🎟️ Not enough Grims — need ${AVATAR_COST}, have ${blCurrency ? blCurrency.balance : 0}.`);
         return;
     }
+    if (!confirm(`Buy this avatar (${avatar}) for ${AVATAR_COST} Grims?`)) return;
     const result = await blCallAccountRpc('purchase_avatar', { p_username: blAccount.username, p_avatar: avatar, p_cost: AVATAR_COST });
     if (!result || !result.ok) { writeLog(`🎟️ Purchase failed: ${(result && result.error) || 'unknown error'}`); return; }
     blCurrency = { balance: result.balance };
