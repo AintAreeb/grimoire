@@ -1334,6 +1334,12 @@
         }
         .music-volume-row { display: flex; align-items: center; gap: 6px; flex: 1; }
         .music-volume-row input[type="range"] { flex: 1; accent-color: #ff3333; }
+        .music-shuffle-btn {
+            flex-shrink: 0; background: #1a1922; border: 1px solid rgba(255,255,255,0.12);
+            color: #8a8f98; font-size: 13px; border-radius: 50%; width: 28px; height: 28px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .music-shuffle-btn.music-shuffle-active { border-color: #ff3333; color: #ff5555; background: rgba(255,51,51,0.12); }
         /* Timeline/seek bar for the currently playing track — Settings
            modal only, deliberately not mirrored into the compact in-game
            comms bar (which just has prev/play/next, no room for it). */
@@ -1995,6 +2001,7 @@
                 <button class="music-skip-btn" onclick="musicPrev()"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 6h2v12H6V6zm3.5 6L18 18V6l-8.5 6z"/></svg></button>
                 <button class="music-play-btn" id="musicPlayBtn" onclick="musicTogglePlay()"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
                 <button class="music-skip-btn" onclick="musicSkip()"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+                <button class="music-shuffle-btn" id="musicShuffleBtn" onclick="musicToggleShuffle()" title="Shuffle"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg></button>
                 <div class="music-volume-row">
                     <span style="font-size:11px;">🔉</span>
                     <input type="range" id="musicVolumeSlider" min="0" max="100" value="50" oninput="musicSetVolume(this.value)">
@@ -5114,6 +5121,26 @@ function teardownVoice() {
     setVoiceButtonsVisible(false);
     updateMicButtonUI();
 }
+// Safety net for the case where the player backgrounds or kills the app
+// entirely (home button, recent-apps swipe) instead of using an in-app
+// "Leave Match" action — no JS teardown path runs in that case, so the mic
+// hardware (and the OS's mic-in-use indicator) can otherwise keep running.
+// Only stops the *local* capture track; the voice room/remote audio stays
+// intact so returning to the app doesn't drop the call, it just re-requests
+// the mic (via the existing tap-to-talk / toggle controls) next time it's
+// needed.
+function suspendMicOnBackground() {
+    if (!voice.localStream) return;
+    voice.localStream.getTracks().forEach(t => t.stop());
+    voice.localStream = null;
+    voice.micOn = false;
+    voice.pttHolding = false;
+    updateMicButtonUI();
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') suspendMicOnBackground();
+});
+window.addEventListener('pagehide', suspendMicOnBackground);
 // Shows/hides just the 3 voice-specific buttons inside the merged comms
 // row (the folder toggle + the Chat button stay available regardless,
 // since quick chat works with or without an active voice room).
@@ -10086,7 +10113,7 @@ function renderTutorStep() {
 // regardless of whose key served the search.
 
 const BL_MUSIC_KEY = 'grimoire_music';
-let blMusic = { playlist: [], volume: 50, personalApiKey: '' };
+let blMusic = { playlist: [], volume: 50, personalApiKey: '', shuffle: false };
 // Keys that have come back quota-exceeded this session — skipped on
 // subsequent searches so we don't keep wasting calls retrying them.
 // Not persisted, since quota resets daily and keys can change.
@@ -10132,12 +10159,14 @@ async function blPullMusicFromAccount() {
         blMusic = {
             playlist: result.playlist || [],
             personalApiKey: result.personal_api_key || '',
-            volume: (result.volume ?? blMusic.volume)
+            volume: (result.volume ?? blMusic.volume),
+            shuffle: blMusic.shuffle // local-only preference, not synced cross-device
         };
         try { localStorage.setItem(BL_MUSIC_KEY, JSON.stringify(blMusic)); } catch (e) {}
         musicExhaustedKeys.clear();
         musicRenderPlaylist();
         musicUpdatePlayBtn();
+        musicUpdateShuffleBtn();
         if (musicYtReady) musicYtPlayer.setVolume(blMusic.volume);
         const keyInput = document.getElementById('musicPersonalKeyInput');
         if (keyInput) keyInput.value = blMusic.personalApiKey ? '••••••••' : '';
@@ -10165,6 +10194,8 @@ function onYouTubeIframeAPIReady() {
             onReady: () => {
                 musicYtReady = true;
                 musicYtPlayer.setVolume(blMusic.volume);
+                musicUpdateShuffleBtn();
+                musicMaybeAutoplayOnBoot();
             },
             onStateChange: (e) => {
                 if (e.data === YT.PlayerState.ENDED) musicSkip();
@@ -10195,6 +10226,30 @@ function onYouTubeIframeAPIReady() {
     });
 }
 let musicSkipStreak = 0;
+let musicDidAutoplayOnBoot = false;
+// Runs once, right after the YouTube player finishes initializing. If the
+// player has their own API key saved and at least one checked track in
+// their playlist, starts playback automatically in shuffle mode — mirrors
+// "open the app, music's already going" rather than requiring a manual tap.
+// Browsers/WebViews that enforce a strict autoplay-requires-gesture policy
+// may silently block the actual sound until the first tap anywhere in the
+// app; the track stays loaded and paused in that case, so the very next
+// tap on Play resumes instantly instead of starting cold.
+function musicMaybeAutoplayOnBoot() {
+    if (musicDidAutoplayOnBoot) return;
+    musicDidAutoplayOnBoot = true;
+    if (!blMusic.personalApiKey) return;
+    const checkedTracks = musicCheckedTracks();
+    if (checkedTracks.length === 0) return;
+    blMusic.shuffle = true;
+    musicSave();
+    musicUpdateShuffleBtn();
+    musicCurrentIndex = Math.floor(Math.random() * checkedTracks.length);
+    musicCurrentVideoId = checkedTracks[musicCurrentIndex].videoId;
+    musicYtPlayer.loadVideoById(musicCurrentVideoId);
+    musicYtPlayer.playVideo();
+    musicRenderPlaylist();
+}
 function musicShowPlaybackError(track, reason) {
     const el = document.getElementById('musicNowPlaying');
     if (!el) return;
@@ -10204,6 +10259,26 @@ function musicShowPlaybackError(track, reason) {
 
 function musicCheckedTracks() {
     return blMusic.playlist.filter(t => t.checked);
+}
+function musicToggleShuffle() {
+    blMusic.shuffle = !blMusic.shuffle;
+    musicSave();
+    musicUpdateShuffleBtn();
+}
+function musicUpdateShuffleBtn() {
+    const btn = document.getElementById('musicShuffleBtn');
+    if (btn) btn.classList.toggle('music-shuffle-active', !!blMusic.shuffle);
+}
+// Picks the next rotation index given the current one — random (excluding
+// the current track when more than one is available) when shuffle is on,
+// otherwise the plain next/previous slot.
+function musicNextIndex(currentIndex, total, direction) {
+    if (!blMusic.shuffle || total <= 1) {
+        return (currentIndex + direction + total) % total;
+    }
+    let next;
+    do { next = Math.floor(Math.random() * total); } while (next === currentIndex);
+    return next;
 }
 function musicEscape(s) { return (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 function musicEscapeAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
@@ -10345,7 +10420,7 @@ function musicTogglePlay() {
         musicYtPlayer.playVideo();
         return;
     }
-    musicCurrentIndex = 0;
+    musicCurrentIndex = blMusic.shuffle ? Math.floor(Math.random() * checkedTracks.length) : 0;
     musicCurrentVideoId = checkedTracks[musicCurrentIndex].videoId;
     musicYtPlayer.loadVideoById(checkedTracks[musicCurrentIndex].videoId);
     musicRenderPlaylist();
@@ -10353,7 +10428,7 @@ function musicTogglePlay() {
 function musicSkip() {
     const checkedTracks = musicCheckedTracks();
     if (checkedTracks.length === 0 || !musicYtReady) return;
-    musicCurrentIndex = (musicCurrentIndex + 1) % checkedTracks.length;
+    musicCurrentIndex = musicCurrentIndex === -1 ? 0 : musicNextIndex(musicCurrentIndex, checkedTracks.length, 1);
     musicCurrentVideoId = checkedTracks[musicCurrentIndex].videoId;
     musicYtPlayer.loadVideoById(checkedTracks[musicCurrentIndex].videoId);
     musicRenderPlaylist();
@@ -10361,7 +10436,7 @@ function musicSkip() {
 function musicPrev() {
     const checkedTracks = musicCheckedTracks();
     if (checkedTracks.length === 0 || !musicYtReady) return;
-    musicCurrentIndex = (musicCurrentIndex - 1 + checkedTracks.length) % checkedTracks.length;
+    musicCurrentIndex = musicCurrentIndex === -1 ? 0 : musicNextIndex(musicCurrentIndex, checkedTracks.length, -1);
     musicCurrentVideoId = checkedTracks[musicCurrentIndex].videoId;
     musicYtPlayer.loadVideoById(checkedTracks[musicCurrentIndex].videoId);
     musicRenderPlaylist();
