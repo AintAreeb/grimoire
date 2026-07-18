@@ -8444,6 +8444,35 @@ function getBotCandidatePool(actor, enemies, roleOverride) {
     return harmful;
 }
 
+// Snapshots gameState.p1 (the player's team) right before a bot move that
+// might land on an ARBITRARY player card rather than the generic pre-picked
+// targetPlayer — Sorcerer hijack, Actor/Dementor/Bartender mimicking
+// Dictator/Lawyer, Warden's frame-swap. Paired with diffP1Hit below to find
+// which card actually changed once the move resolves, so botLastAttackRecord
+// (and therefore Chronos's rewind / Imam's block) always describes what
+// REALLY happened, not just whatever card was picked before the branch ran.
+function snapshotP1() {
+    let snap = {};
+    gameState.p1.forEach(c => { snap[c.id] = { hex: c.hex, imprisoned: c.imprisoned, poisoned: c.poisoned }; });
+    return snap;
+}
+// Returns {targetPlayer, preAttackHex, actionType, wasPoisonedState} for
+// whichever p1 card differs from the snapshot, or null if nothing changed.
+function diffP1Hit(snap) {
+    let hitCard = gameState.p1.find(c => {
+        let before = snap[c.id];
+        return before && (before.hex !== c.hex || before.imprisoned !== c.imprisoned || before.poisoned !== c.poisoned);
+    });
+    if (!hitCard) return null;
+    let before = snap[hitCard.id];
+    return {
+        targetPlayer: hitCard,
+        preAttackHex: before.hex,
+        actionType: (!before.imprisoned && hitCard.imprisoned) ? 'imprison' : 'damage',
+        wasPoisonedState: before.poisoned
+    };
+}
+
 // Applies the REAL effect of the named role, exactly matching the
 // corresponding case in processSelectedTarget (killer_strike, robber_siphon,
 // cop_strike, witch_poison, etc). Shared by bot Actor, Dementor and
@@ -9317,9 +9346,19 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         }
                     }
                 } else if (aiActor.name === 'Bartender') {
+                    let preBartendSnap = snapshotP1();
                     let didBartend = applyMimicRoleEffect('Bartender', aiActor, 'Bot Bartender');
                     if (!didBartend) {
                         executedAction = false;
+                    } else {
+                        let hit = diffP1Hit(preBartendSnap);
+                        if (hit) {
+                            targetPlayer = hit.targetPlayer;
+                            preAttackHex = hit.preAttackHex;
+                            actionType = hit.actionType;
+                            wasPoisonedState = hit.wasPoisonedState;
+                            isDirectKill = actionType !== 'imprison' && preAttackHex > 0 && targetPlayer.hex === 0;
+                        }
                     }
                 } else if (aiActor.name === 'Terrorist') {
                     gameState.p1.forEach(c => {
@@ -9352,6 +9391,14 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         let framed = pickBotTarget(framePool, gameState.difficulty);
                         applyShieldedImprison(framed);
                         writeLog(`⚖️ Bot Warden frames your ${framed.name}, who is hauled off to prison in ${freed.name}'s place!`);
+                        // Point the tracked attack record at the actually-framed
+                        // card (not whatever generic target was pre-picked
+                        // above), so Chronos/Imam can correctly free it later.
+                        if (framed.imprisoned) {
+                            targetPlayer = framed;
+                            preAttackHex = framed.hex;
+                            actionType = 'imprison';
+                        }
                     } else {
                         executedAction = false;
                     }
@@ -9359,10 +9406,26 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                 } else if (aiActor.name === 'Actor') {
                     let roles = ['Killer', 'Robber', 'Doctor', 'Dictator', 'Cop', 'Singer', 'Spy', 'Ninja', 'Hood', 'Witch', 'Lawyer', 'Knight', 'Jinn', 'Wraith', 'Bartender'];
                     let randomRole = roles[Math.floor(Math.random() * roles.length)];
+                    let preActorSnap = snapshotP1();
                     let didAct = applyMimicRoleEffect(randomRole, aiActor, `Bot Actor (as ${randomRole})`);
                     if (!didAct) {
                         writeLog(`🎭 Bot Actor mimicked ${randomRole} but found no valid target.`);
                         executedAction = false;
+                    } else {
+                        // Same fix as the Sorcerer hijack branch above: find
+                        // whichever p1 card the mimicked role actually hit
+                        // (Dictator/Lawyer imprison a card the pre-picked
+                        // targetPlayer above has nothing to do with) so the
+                        // resulting botLastAttackRecord is accurate and
+                        // Chronos/Imam can actually reverse it.
+                        let hit = diffP1Hit(preActorSnap);
+                        if (hit) {
+                            targetPlayer = hit.targetPlayer;
+                            preAttackHex = hit.preAttackHex;
+                            actionType = hit.actionType;
+                            wasPoisonedState = hit.wasPoisonedState;
+                            isDirectKill = actionType !== 'imprison' && preAttackHex > 0 && targetPlayer.hex === 0;
+                        }
                     }
                     aiActor.hex = 0;
                 } else if (aiActor.name === 'Princess') {
@@ -9382,8 +9445,20 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                     if (deadCards.length > 0) {
                         let randomDead = deadCards[Math.floor(Math.random() * deadCards.length)];
                         writeLog(`💀 Bot Dementor reanimates the essence of ${randomDead.name}!`);
+                        let preDementorSnap = snapshotP1();
                         let didAct = applyMimicRoleEffect(randomDead.name, aiActor, `Bot Dementor (as ${randomDead.name})`);
-                        if (!didAct) executedAction = false;
+                        if (!didAct) {
+                            executedAction = false;
+                        } else {
+                            let hit = diffP1Hit(preDementorSnap);
+                            if (hit) {
+                                targetPlayer = hit.targetPlayer;
+                                preAttackHex = hit.preAttackHex;
+                                actionType = hit.actionType;
+                                wasPoisonedState = hit.wasPoisonedState;
+                                isDirectKill = actionType !== 'imprison' && preAttackHex > 0 && targetPlayer.hex === 0;
+                            }
+                        }
                     } else {
                         writeLog(`💀 Bot Dementor found no dead cards to reanimate.`);
                         executedAction = false;
