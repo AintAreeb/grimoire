@@ -38,7 +38,7 @@ jobs:
 
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's#android:name=".MainActivity"#android:name=".MainActivity"\n            android:windowLayoutInDisplayCutoutMode="shortEdges"#' "$MANIFEST"
-          sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n\n    <application#' "$MANIFEST"
+          sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n\n    <application#' "$MANIFEST"
           cat "$MANIFEST"
       - name: Grant WebView permission requests (mic access)
         run: |
