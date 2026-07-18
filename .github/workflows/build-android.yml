@@ -40,6 +40,31 @@ jobs:
           sed -i 's#android:name=".MainActivity"#android:name=".MainActivity"\n            android:windowLayoutInDisplayCutoutMode="shortEdges"#' "$MANIFEST"
           sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n\n    <application#' "$MANIFEST"
           cat "$MANIFEST"
+      - name: Grant WebView permission requests (mic access)
+        run: |
+          MAINACT=android/app/src/main/java/com/grimoire/cardgame/MainActivity.java
+          cat > "$MAINACT" << 'EOF'
+          package com.grimoire.cardgame;
+
+          import android.os.Bundle;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getBridge().getWebView().setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(final PermissionRequest request) {
+                          runOnUiThread(() -> request.grant(request.getResources()));
+                      }
+                  });
+              }
+          }
+          EOF
+          cat "$MAINACT"
       - name: Build adaptive icon layers (foreground, background, monochrome)
         run: |
           sudo apt-get update && sudo apt-get install -y imagemagick wget
