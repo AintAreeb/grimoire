@@ -1802,6 +1802,7 @@
                             <div id="accountTitleBadge" class="title-badge" style="display:none;"></div>
                             <div class="account-badge-row">
                                 <span id="accountFavBadge" class="profile-fav-badge profile-fav-empty" style="display:none;"></span>
+                                <span id="accountLevelBadge" class="profile-fav-badge" style="display:none; background:transparent;"></span>
                                 <span id="accountRankBadge" class="profile-fav-badge" style="display:none; background:transparent;"></span>
                                 <span id="accountCurrencyBadge" class="profile-fav-badge" style="display:none; background:transparent;"></span>
                             </div>
@@ -1814,6 +1815,10 @@
                     <button class="account-btn account-btn-alt" style="position:relative;" onclick="openFriendsModal()">
                         👥 Friends
                         <span id="friendsReqBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3333; color:#e8e0c9; border-radius:50%; width:16px; height:16px; font-size:9px; line-height:16px; text-align:center; font-weight:700;"></span>
+                    </button>
+                    <button class="account-btn account-btn-alt" style="position:relative;" onclick="openGuildModal()">
+                        🏯 Guild
+                        <span id="guildReqBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3333; color:#e8e0c9; border-radius:50%; width:16px; height:16px; font-size:9px; line-height:16px; text-align:center; font-weight:700;"></span>
                     </button>
                     <button class="account-btn account-btn-alt" onclick="blLogout()">Log Out</button>
                 </div>
@@ -2063,6 +2068,27 @@
             <div id="friendAddStatus" class="account-status"></div>
         </div>
         <button class="guide-close-btn" onclick="closeFriendsModal()">Close</button>
+    </div>
+
+    <div id="guildModal" class="guide-modal" style="max-width:320px;">
+        <h3>🏯 Guild</h3>
+        <div class="guide-tabs">
+            <button class="guide-tab-btn guide-tab-active" id="guildTabMineBtn" onclick="switchGuildTab('mine')">My Guild</button>
+            <button class="guide-tab-btn" id="guildTabSearchBtn" onclick="switchGuildTab('search')">Search</button>
+            <button class="guide-tab-btn" id="guildTabBoardBtn" onclick="switchGuildTab('board')">Top Guilds</button>
+        </div>
+        <div class="guide-body">
+            <div id="guildMineView"></div>
+            <div id="guildSearchView" style="display:none;">
+                <div style="display:flex; gap:6px; margin-bottom:10px;">
+                    <input type="text" id="guildSearchInput" class="account-input" placeholder="Search guild name..." maxlength="24" autocomplete="off" style="flex:1; margin-bottom:0;" onkeydown="if(event.key==='Enter') blSearchGuilds();">
+                    <button class="account-btn" style="flex:none; padding:8px 12px; margin-bottom:0;" onclick="blSearchGuilds()">Go</button>
+                </div>
+                <div id="guildSearchResults"></div>
+            </div>
+            <div id="guildBoardView" style="display:none;"></div>
+        </div>
+        <button class="guide-close-btn" onclick="closeGuildModal()">Close</button>
     </div>
 
     <div id="settingsModal" class="guide-modal" style="max-width:300px;">
@@ -2968,6 +2994,7 @@ async function blRefreshMyRanking() {
             .then(r => { if (r && r.ok && r.newly_granted && r.newly_granted.includes('excalibur')) writeLog('👑 Title earned: Excalibur'); });
     }
     blRenderRankBadge();
+    blSyncGuildRpIfNeeded();
 }
 
 // Pure delta calculation, shared by the real ranking system (below) and the
@@ -3741,6 +3768,13 @@ async function recordTitleProgressIfNeeded() {
         await blCallAccountRpc('grant_titles', { p_username: blAccount.username, p_title_ids: newlyEarned.map(t => t.id) });
         newlyEarned.forEach(t => writeLog(`🏅 Title earned: ${t.name}`));
     }
+
+    // Level system rides on the same lifetime stats — see LEVEL SYSTEM below.
+    let prevLevel = blMyLevelStats ? blComputeLevelInfo(blMyLevelStats).level : null;
+    blMyLevelStats = stats;
+    let newLevel = blComputeLevelInfo(stats).level;
+    if (prevLevel !== null && newLevel > prevLevel) writeLog(`⭐ Level up! You are now Level ${newLevel}.`);
+    blRenderLevelBadge();
 }
 
 // Only earned titles can be equipped; passing null/empty un-equips.
@@ -3863,6 +3897,8 @@ async function blLoadProfile(username) {
         blRenderAccountFavBadge();
         blRenderAccountAvatar();
         blRenderAccountTitleBadge();
+        blMyLevelStats = (blProfileTitles && blProfileTitles.stats) || blMyLevelStats;
+        blRenderLevelBadge();
         if (blProfileRanking) {
             blRanking = { points: blProfileRanking.ranking_points || 0, wins: blProfileRanking.wins || 0, losses: blProfileRanking.losses || 0, draws: blProfileRanking.draws || 0, worldRank: blProfileRanking.world_rank || null };
             blRenderRankBadge();
@@ -3879,6 +3915,7 @@ function renderProfileInfo() {
     if (!p) return;
     const favLabel = p.favourite_card ? `⭐ ${blEscapeHtml(p.favourite_card)}` : 'No favourite card set';
     let rankTier = blProfileRanking ? getTierForPoints(blProfileRanking.ranking_points) : null;
+    let lvl = (blProfileTitles && blProfileTitles.stats) ? blComputeLevelInfo(blProfileTitles.stats) : null;
     let html = `
         <div class="pbanner-strip" id="profileBannerStrip" style="margin-bottom:12px;">
             <div class="profile-header">
@@ -3887,13 +3924,16 @@ function renderProfileInfo() {
                     <div class="profile-username">${blEscapeHtml(p.username)}</div>
                     ${blProfileTitles && blProfileTitles.equipped_title && TITLE_BY_ID_MAP[blProfileTitles.equipped_title] ? `<div class="title-badge">🏅 ${TITLE_BY_ID_MAP[blProfileTitles.equipped_title].name}</div>` : ''}
                     <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">
+                        ${lvl ? `<span class="profile-fav-badge" style="background:transparent; border-color:#4af7a755; color:#4af7a7;">⭐ Level ${lvl.level}</span>` : ''}
                         <span class="profile-fav-badge${p.favourite_card ? '' : ' profile-fav-empty'}">${favLabel}</span>
                         ${rankTier ? `<span class="profile-fav-badge" style="background:transparent; border-color:${rankTier.color}55; color:${rankTier.color};">${rankTier.icon} ${rankTier.name}${blProfileRanking.world_rank ? ` · #${blProfileRanking.world_rank}` : ''}</span>` : ''}
                     </div>
                     ${blProfileIsSelf ? `<button class="profile-fav-picker-btn" onclick="openFavCardModal()">Change favourite card</button>` : ''}
                 </div>
             </div>
-        </div>`;
+        </div>
+        ${lvl ? `<div class="msum-bar-track" style="height:8px; margin:4px 0 4px 0;"><div class="msum-bar-fill" style="width:${Math.round(lvl.progress * 100)}%; background:#4af7a7;"></div></div>
+        <div style="font-size:9.5px; color:#5a5f68; text-align:center; margin-bottom:12px;">${lvl.xp - lvl.curThresh} / ${lvl.nextThresh - lvl.curThresh} XP to Level ${lvl.level + 1} · ~${lvl.matchesToNext} matches to go</div>` : ''}`;
     if (blProfileIsSelf) {
         const ownedAvatars = (blCosmetics && blCosmetics.ownedAvatars) || [DEFAULT_FREE_AVATAR];
         const avatarOpt = (a) => {
@@ -4727,7 +4767,7 @@ function bl_bootIntoGameScreen() {
     bl_pushState({ screen: 'game', modal: null });
 }
 function bl_hideModalUI(name) {
-    const ids = { guide: 'guideModal', chat: 'chatModal', friends: 'friendsModal', settings: 'settingsModal', summary: 'matchSummaryModal', profile: 'profileModal', favcard: 'favCardModal', ranking: 'rankingModal', replay: 'replayModal' };
+    const ids = { guide: 'guideModal', chat: 'chatModal', friends: 'friendsModal', guild: 'guildModal', settings: 'settingsModal', summary: 'matchSummaryModal', profile: 'profileModal', favcard: 'favCardModal', ranking: 'rankingModal', replay: 'replayModal' };
     const el = document.getElementById(ids[name]);
     if (el) el.style.display = 'none';
 }
@@ -4797,6 +4837,8 @@ function blRenderAccountUI() {
         blRefreshCosmetics();
         blRefreshCurrency();
         blFlushPendingMatches();
+        blFetchMyLevelStats();
+        blRefreshMyGuild();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
@@ -4809,9 +4851,13 @@ function blRenderAccountUI() {
         blProfileTitles = null;
         blCosmetics = null;
         blCurrency = null;
+        blMyLevelStats = null;
+        blGuild = null;
         renderCurrencyUI();
         applyEquippedBoardTheme();
         blRenderRankBadge();
+        blRenderLevelBadge();
+        blUpdateGuildReqBadge();
     }
 }
 
@@ -5194,6 +5240,415 @@ function blEscapeHtml(s) {
 }
 function blEscapeJs(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+// ============================================================================
+// PLAYER LEVEL SYSTEM
+// Entirely derived from the same lifetime stats the Titles/Mastery system
+// already tracks server-side (player_titles.wins / .matches, populated by
+// record_title_progress on every finished match — solo, bot, or multiplayer
+// alike). No new database columns needed: Level is a client-side projection
+// of xp = wins*WIN_XP + (matches-wins)*OTHER_XP through a cubic curve, so a
+// loss (or draw) still nets a little xp, but wins matter 3x more. The curve
+// is calibrated so Level 1 is basically instant, Level 10 costs on the order
+// of a hundred matches, and Level 100 costs roughly 100,000 lifetime
+// matches — gradual early, brutal late, and uncapped above 100.
+// ============================================================================
+const BL_LEVEL_WIN_XP = 12;
+const BL_LEVEL_OTHER_XP = 4; // awarded per non-win (loss or draw) match
+const BL_LEVEL_XP_CONST = 0.8; // xpForLevel(L) = CONST * L^3 -> L=100 needs 800,000xp (~100k matches at the ~8xp/match design average)
+
+function blXpForLevel(level) {
+    return Math.round(BL_LEVEL_XP_CONST * Math.pow(Math.max(0, level), 3));
+}
+function blLevelForXp(xp) {
+    if (!xp || xp <= 0) return 1;
+    return Math.max(1, Math.floor(Math.cbrt(xp / BL_LEVEL_XP_CONST)));
+}
+function blComputeMatchXp(stats) {
+    if (!stats) return 0;
+    const wins = stats.wins || 0;
+    const matches = stats.matches || 0;
+    const nonWins = Math.max(0, matches - wins);
+    return wins * BL_LEVEL_WIN_XP + nonWins * BL_LEVEL_OTHER_XP;
+}
+// { level, xp, curThresh, nextThresh, progress(0-1), matchesToNext }
+function blComputeLevelInfo(stats) {
+    const xp = blComputeMatchXp(stats);
+    const level = blLevelForXp(xp);
+    const curThresh = blXpForLevel(level);
+    const nextThresh = blXpForLevel(level + 1);
+    const span = Math.max(1, nextThresh - curThresh);
+    const progress = Math.max(0, Math.min(1, (xp - curThresh) / span));
+    const avgXpPerMatch = (BL_LEVEL_WIN_XP + BL_LEVEL_OTHER_XP) / 2;
+    const matchesToNext = Math.max(0, Math.ceil((nextThresh - xp) / avgXpPerMatch));
+    return { level, xp, curThresh, nextThresh, progress, matchesToNext };
+}
+
+let blMyLevelStats = null; // last-known lifetime stats object, used for the account badge
+async function blFetchMyLevelStats() {
+    if (!blAccount) { blMyLevelStats = null; blRenderLevelBadge(); return; }
+    const result = await blCallAccountRpc('get_player_titles', { p_username: blAccount.username });
+    blMyLevelStats = (result && result.ok && result.stats) ? result.stats : blMyLevelStats;
+    blRenderLevelBadge();
+}
+function blRenderLevelBadge() {
+    const el = document.getElementById('accountLevelBadge');
+    if (!el) return;
+    if (!blMyLevelStats) { el.style.display = 'none'; return; }
+    const info = blComputeLevelInfo(blMyLevelStats);
+    el.style.display = 'inline-flex';
+    el.style.color = '#4af7a7';
+    el.style.borderColor = '#4af7a755';
+    el.innerHTML = `⭐ Lv. ${info.level}`;
+}
+
+// ============================================================================
+// GUILDS — backed by the same Supabase project as everything else; see
+// grimoire_guilds_setup.sql for the one-time database setup (adds 4 new
+// tables + 15 RPC functions, nothing existing is touched). Capacity 50.
+// Roles (historical/mythological, not literally "leader/mod"):
+//   Archon (leader, 1)  ·  Hierophant (vice leader, 1)  ·  Praetorian (moderator, up to 3)  ·  Member
+// ============================================================================
+const GUILD_CREATE_COST = 9999;
+const GUILD_CAPACITY = 50;
+const GUILD_ROLE_INFO = {
+    archon:     { label: 'Archon',     sub: 'Leader',      rank: 4, color: '#ffcc00' },
+    hierophant: { label: 'Hierophant', sub: 'Vice Leader',  rank: 3, color: '#3388ff' },
+    praetorian: { label: 'Praetorian', sub: 'Moderator',    rank: 2, color: '#4af7a7' },
+    member:     { label: 'Member',     sub: '',             rank: 1, color: '#8a8f98' }
+};
+
+let blGuild = null;              // { in_guild, guild:{...}, my_role, members:[...], join_requests:[...] } | null
+let blGuildInvitesToMe = [];     // pending invites when not in a guild
+let blGuildTab = 'mine';
+let blGuildSearchResults = [];
+
+function openGuildModal() {
+    if (!blAccount) return;
+    bl_pushState({ modal: 'guild' });
+    document.getElementById('guildModal').style.display = 'flex';
+    switchGuildTab('mine');
+    blRefreshMyGuild();
+}
+function closeGuildModal() {
+    document.getElementById('guildModal').style.display = 'none';
+    if (bl_hist.modal === 'guild') history.back();
+}
+function switchGuildTab(tab) {
+    blGuildTab = tab;
+    document.getElementById('guildTabMineBtn').classList.toggle('guide-tab-active', tab === 'mine');
+    document.getElementById('guildTabSearchBtn').classList.toggle('guide-tab-active', tab === 'search');
+    document.getElementById('guildTabBoardBtn').classList.toggle('guide-tab-active', tab === 'board');
+    document.getElementById('guildMineView').style.display = tab === 'mine' ? 'block' : 'none';
+    document.getElementById('guildSearchView').style.display = tab === 'search' ? 'block' : 'none';
+    document.getElementById('guildBoardView').style.display = tab === 'board' ? 'block' : 'none';
+    if (tab === 'board') blLoadGuildLeaderboard();
+}
+
+async function blRefreshMyGuild() {
+    if (!blAccount) { blGuild = null; blUpdateGuildReqBadge(); return; }
+    const result = await blCallAccountRpc('get_my_guild', { p_username: blAccount.username });
+    blGuild = (result && result.ok) ? result : { ok: true, in_guild: false };
+    if (!blGuild.in_guild) {
+        const invResult = await blCallAccountRpc('get_my_guild_invites', { p_username: blAccount.username });
+        blGuildInvitesToMe = (invResult && invResult.ok) ? (invResult.invites || []) : [];
+    } else {
+        blGuildInvitesToMe = [];
+    }
+    blUpdateGuildReqBadge();
+    if (blGuildTab === 'mine' && document.getElementById('guildModal').style.display === 'flex') renderGuildMineView();
+}
+
+function blUpdateGuildReqBadge() {
+    const badge = document.getElementById('guildReqBadge');
+    if (!badge) return;
+    let count = blGuildInvitesToMe.length;
+    if (blGuild && blGuild.in_guild) count += (blGuild.join_requests || []).length;
+    if (count > 0) { badge.style.display = 'block'; badge.innerText = count > 9 ? '9+' : String(count); }
+    else badge.style.display = 'none';
+}
+
+function renderGuildMineView() {
+    const view = document.getElementById('guildMineView');
+    if (!blGuild || !blGuild.in_guild) {
+        let invitesHtml = '';
+        if (blGuildInvitesToMe.length > 0) {
+            invitesHtml = `<div class="guide-section-label">Invitations</div>` + blGuildInvitesToMe.map(inv => `
+                <div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                    <span class="guide-card-name">${inv.guild_avatar || '🏯'} ${blEscapeHtml(inv.guild_name)}</span>
+                    <div style="display:flex; gap:4px; flex-shrink:0;">
+                        <button class="account-btn" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRespondGuildInvite('${blEscapeJs(inv.id)}', true)">Accept</button>
+                        <button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRespondGuildInvite('${blEscapeJs(inv.id)}', false)">Decline</button>
+                    </div>
+                </div>`).join('');
+        }
+        view.innerHTML = `${invitesHtml}
+            <div class="guide-section-label">Create a Guild</div>
+            <div class="guide-card-desc" style="margin-bottom:8px;">Costs ${GUILD_CREATE_COST} Grims · capacity ${GUILD_CAPACITY} · Balance: 🎟️ ${blCurrency ? blCurrency.balance : 0}</div>
+            <input type="text" id="guildCreateName" class="account-input" placeholder="Guild name" maxlength="24" autocomplete="off">
+            <input type="text" id="guildCreateAvatar" class="account-input" placeholder="Avatar (an emoji)" maxlength="4" value="🏯" autocomplete="off">
+            <textarea id="guildCreateBio" class="profile-bio-textarea" maxlength="140" placeholder="Guild bio..."></textarea>
+            <button class="account-btn" style="width:100%;" onclick="blCreateGuild()">Found Guild — ${GUILD_CREATE_COST} Grims</button>
+            <div id="guildCreateStatus" class="account-status"></div>`;
+        return;
+    }
+
+    const g = blGuild.guild;
+    const myRole = blGuild.my_role;
+    const myRank = GUILD_ROLE_INFO[myRole].rank;
+    const isAdmin = myRank >= 2; // praetorian, hierophant, archon
+    const isArchon = myRole === 'archon';
+    const isHierophant = myRole === 'hierophant';
+    const archonInactive = g.archon_last_active ? (Date.now() - new Date(g.archon_last_active).getTime() > 3 * 24 * 60 * 60 * 1000) : false;
+
+    let membersHtml = (blGuild.members || []).map(m => {
+        const info = GUILD_ROLE_INFO[m.role];
+        const canKick = isAdmin && m.username !== blAccount.username && myRank > info.rank;
+        const canPromote = isArchon && m.role === 'member';
+        const canDemote = isArchon && (m.role === 'hierophant' || m.role === 'praetorian');
+        return `<div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap;">
+            <div style="min-width:0;">
+                <span class="guide-card-name">${blEscapeHtml(m.username)}</span>
+                <span style="font-size:9px; color:${info.color}; font-weight:700; margin-left:4px;">${info.label}${info.sub ? ` (${info.sub})` : ''}</span>
+                <div style="font-size:9px; color:#5a5f68;">${m.ranking_points} RP</div>
+            </div>
+            <div style="display:flex; gap:4px; flex-wrap:wrap; flex-shrink:0;">
+                ${canPromote ? `<button class="account-btn account-btn-alt" style="flex:none; padding:5px 6px; font-size:9px;" onclick="blPromoteGuildMember('${blEscapeJs(m.username)}','praetorian')">→ Praetorian</button>
+                    <button class="account-btn account-btn-alt" style="flex:none; padding:5px 6px; font-size:9px;" onclick="blPromoteGuildMember('${blEscapeJs(m.username)}','hierophant')">→ Hierophant</button>` : ''}
+                ${canDemote ? `<button class="account-btn account-btn-alt" style="flex:none; padding:5px 6px; font-size:9px;" onclick="blDemoteGuildMember('${blEscapeJs(m.username)}')">Demote</button>` : ''}
+                ${canKick ? `<button class="account-btn account-btn-alt" style="flex:none; padding:5px 6px; font-size:9px;" onclick="blKickGuildMember('${blEscapeJs(m.username)}')">Kick</button>` : ''}
+                <button class="account-btn account-btn-alt" style="flex:none; padding:5px 6px; font-size:9px;" onclick="openProfileModal('${blEscapeJs(m.username)}')">👤</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    let requestsHtml = '';
+    if (isAdmin && (blGuild.join_requests || []).length > 0) {
+        requestsHtml = `<div class="guide-section-label">Join Requests</div>` + blGuild.join_requests.map(r => `
+            <div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between;">
+                <span class="guide-card-name">${blEscapeHtml(r.username)}</span>
+                <div style="display:flex; gap:4px;">
+                    <button class="account-btn" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRespondJoinRequest('${blEscapeJs(r.id)}', true)">Accept</button>
+                    <button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRespondJoinRequest('${blEscapeJs(r.id)}', false)">Decline</button>
+                </div>
+            </div>`).join('');
+    }
+
+    view.innerHTML = `
+        <div class="pbanner-strip" id="guildBannerStrip" style="margin-bottom:10px;">
+            <div class="profile-header">
+                <div class="profile-avatar-circle">${g.avatar || '🏯'}</div>
+                <div class="profile-header-main">
+                    <div class="profile-username">${blEscapeHtml(g.name)}</div>
+                    ${g.is_currently_top ? `<div class="title-badge">👑 Reigning Guild</div>` : ''}
+                    <div style="font-size:10px; color:#8a8f98; margin-top:2px;">${(blGuild.members || []).length} / ${GUILD_CAPACITY} members · ${g.total_rp} total RP</div>
+                </div>
+            </div>
+        </div>
+        ${g.bio ? `<div class="guide-card-desc" style="margin-bottom:10px;">${blEscapeHtml(g.bio)}</div>` : ''}
+        <div class="guide-card-desc" style="margin-bottom:10px;">Joining: ${g.join_mode === 'auto' ? `Auto-join (Level ${g.min_level}+, ${g.min_rank_points}+ RP)` : 'By request (approved by an officer)'}</div>
+        ${isAdmin ? `<div style="display:flex; gap:6px; margin-bottom:10px;">
+            <input type="text" id="guildInviteInput" class="account-input" placeholder="Invite username..." maxlength="20" autocomplete="off" style="flex:1; margin-bottom:0;">
+            <button class="account-btn" style="flex:none; padding:8px 10px; margin-bottom:0;" onclick="blInviteToGuild()">Invite</button>
+        </div>` : ''}
+        ${isHierophant ? `<button class="account-btn account-btn-alt" style="width:100%; margin-bottom:10px;" ${archonInactive ? '' : 'disabled'} onclick="blClaimArchon()">${archonInactive ? '⚔️ Claim Leadership (Archon inactive 3+ days)' : 'Archon active — cannot claim leadership'}</button>` : ''}
+        ${requestsHtml}
+        <div class="guide-section-label">Members</div>
+        ${membersHtml}
+        <div style="display:flex; gap:6px; margin-top:10px;">
+            ${isArchon ? `<button class="account-btn account-btn-alt" style="flex:1;" onclick="blOpenEditGuildForm()">Edit Guild Info</button>` : ''}
+            <button class="account-btn account-btn-alt" style="flex:1;" onclick="blLeaveGuild()">${isArchon ? 'Disband / Leave' : 'Leave Guild'}</button>
+        </div>
+        <div id="guildEditFormWrap"></div>`;
+    blApplyBannerToEl(document.getElementById('guildBannerStrip'), g.banner_id);
+}
+
+async function blCreateGuild() {
+    if (!blAccount) return;
+    const name = document.getElementById('guildCreateName').value.trim();
+    const avatar = document.getElementById('guildCreateAvatar').value.trim() || '🏯';
+    const bio = document.getElementById('guildCreateBio').value.trim().slice(0, 140);
+    const statusEl = document.getElementById('guildCreateStatus');
+    if (!name) { statusEl.innerText = 'Enter a guild name.'; return; }
+    if (!blCurrency || blCurrency.balance < GUILD_CREATE_COST) {
+        statusEl.innerText = `Not enough Grims — need ${GUILD_CREATE_COST}, have ${blCurrency ? blCurrency.balance : 0}.`;
+        return;
+    }
+    if (!confirm(`Found "${name}" for ${GUILD_CREATE_COST} Grims?`)) return;
+    statusEl.innerText = 'Founding guild...';
+    const result = await blCallAccountRpc('create_guild', { p_username: blAccount.username, p_name: name, p_avatar: avatar, p_bio: bio });
+    if (!result || !result.ok) { statusEl.innerText = (result && result.error) || 'Could not create guild.'; return; }
+    blCurrency = { balance: result.balance };
+    renderCurrencyUI();
+    writeLog(`🏯 Guild founded: ${name}`);
+    await blRefreshMyGuild();
+}
+
+async function blSearchGuilds() {
+    const q = document.getElementById('guildSearchInput').value.trim();
+    const resultsEl = document.getElementById('guildSearchResults');
+    resultsEl.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">Searching…</div>';
+    const result = await blCallAccountRpc('search_guilds', { p_query: q });
+    blGuildSearchResults = (result && result.ok) ? (result.guilds || []) : [];
+    if (blGuildSearchResults.length === 0) {
+        resultsEl.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">No guilds found.</div>';
+        return;
+    }
+    resultsEl.innerHTML = blGuildSearchResults.map(gd => {
+        const full = gd.member_count >= GUILD_CAPACITY;
+        const joinBtn = full ? `<span style="font-size:10px; color:#5a5f68;">Full</span>`
+            : gd.join_mode === 'auto'
+                ? `<button class="account-btn" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blJoinGuildAuto('${blEscapeJs(gd.id)}')">Join</button>`
+                : `<button class="account-btn account-btn-alt" style="flex:none; padding:6px 8px; font-size:10px;" onclick="blRequestJoinGuild('${blEscapeJs(gd.id)}')">Request</button>`;
+        return `<div class="guide-card-entry" style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+            <div style="min-width:0;">
+                <span class="guide-card-name">${gd.avatar || '🏯'} ${blEscapeHtml(gd.name)}</span>
+                <div style="font-size:9px; color:#5a5f68;">${gd.member_count}/${GUILD_CAPACITY} · ${gd.total_rp} RP · ${gd.join_mode === 'auto' ? `Auto (Lv ${gd.min_level}+, ${gd.min_rank_points}+ RP)` : 'By request'}</div>
+            </div>
+            ${joinBtn}
+        </div>`;
+    }).join('');
+}
+
+async function blJoinGuildAuto(guildId) {
+    if (!blAccount) return;
+    const level = blMyLevelStats ? blComputeLevelInfo(blMyLevelStats).level : 1;
+    const rp = blRanking ? blRanking.points : 0;
+    const result = await blCallAccountRpc('auto_join_guild', { p_username: blAccount.username, p_guild_id: guildId, p_level: level, p_ranking_points: rp });
+    if (!result || !result.ok) { alert((result && result.error) || 'Could not join guild.'); return; }
+    writeLog('🏯 Joined guild!');
+    switchGuildTab('mine');
+    await blRefreshMyGuild();
+}
+async function blRequestJoinGuild(guildId) {
+    if (!blAccount) return;
+    const result = await blCallAccountRpc('request_join_guild', { p_username: blAccount.username, p_guild_id: guildId });
+    alert((result && result.ok) ? 'Join request sent.' : ((result && result.error) || 'Could not send request.'));
+}
+
+async function blInviteToGuild() {
+    if (!blAccount || !blGuild || !blGuild.in_guild) return;
+    const input = document.getElementById('guildInviteInput');
+    const target = input.value.trim();
+    if (!target) return;
+    const result = await blCallAccountRpc('invite_to_guild', { p_username: blAccount.username, p_guild_id: blGuild.guild.id, p_target_username: target });
+    if (!result || !result.ok) { alert((result && result.error) || 'Could not send invite.'); return; }
+    input.value = '';
+    writeLog(`🏯 Invite sent to ${target}`);
+}
+async function blRespondGuildInvite(inviteId, accept) {
+    const result = await blCallAccountRpc('respond_guild_invite', { p_username: blAccount.username, p_invite_id: inviteId, p_accept: accept });
+    if (!result || !result.ok) { if (result && result.error) alert(result.error); }
+    if (accept) writeLog('🏯 Joined guild!');
+    await blRefreshMyGuild();
+}
+async function blRespondJoinRequest(requestId, accept) {
+    const result = await blCallAccountRpc('respond_join_request', { p_username: blAccount.username, p_request_id: requestId, p_accept: accept });
+    if (!result || !result.ok) alert((result && result.error) || 'Could not respond.');
+    await blRefreshMyGuild();
+}
+async function blKickGuildMember(target) {
+    if (!confirm(`Kick ${target} from the guild?`)) return;
+    const result = await blCallAccountRpc('kick_member', { p_username: blAccount.username, p_guild_id: blGuild.guild.id, p_target_username: target });
+    if (!result || !result.ok) alert((result && result.error) || 'Could not kick member.');
+    await blRefreshMyGuild();
+}
+async function blPromoteGuildMember(target, role) {
+    const result = await blCallAccountRpc('promote_member', { p_username: blAccount.username, p_guild_id: blGuild.guild.id, p_target_username: target, p_new_role: role });
+    if (!result || !result.ok) alert((result && result.error) || 'Could not promote member.');
+    await blRefreshMyGuild();
+}
+async function blDemoteGuildMember(target) {
+    const result = await blCallAccountRpc('demote_member', { p_username: blAccount.username, p_guild_id: blGuild.guild.id, p_target_username: target });
+    if (!result || !result.ok) alert((result && result.error) || 'Could not demote member.');
+    await blRefreshMyGuild();
+}
+async function blClaimArchon() {
+    if (!confirm('Claim the Archon seat? This demotes the current Archon to Member.')) return;
+    const result = await blCallAccountRpc('claim_archon', { p_username: blAccount.username, p_guild_id: blGuild.guild.id });
+    if (!result || !result.ok) { alert((result && result.error) || 'Could not claim leadership.'); return; }
+    writeLog('⚔️ You are now the Archon.');
+    await blRefreshMyGuild();
+}
+async function blLeaveGuild() {
+    const msg = (blGuild.my_role === 'archon') ? 'Leave the guild? Leadership will pass to the next-ranking officer (or the guild disbands if you are the last member).' : 'Leave this guild?';
+    if (!confirm(msg)) return;
+    const result = await blCallAccountRpc('leave_guild', { p_username: blAccount.username, p_guild_id: blGuild.guild.id });
+    if (!result || !result.ok) { alert((result && result.error) || 'Could not leave guild.'); return; }
+    writeLog('🏯 Left the guild.');
+    await blRefreshMyGuild();
+}
+
+function blOpenEditGuildForm() {
+    const g = blGuild.guild;
+    const wrap = document.getElementById('guildEditFormWrap');
+    if (!wrap) return;
+    if (wrap.innerHTML) { wrap.innerHTML = ''; return; } // toggle closed
+    const bannerOpts = BANNER_DEFS.map(b => `<option value="${b.id}" ${b.id === g.banner_id ? 'selected' : ''}>${blEscapeHtml(b.name)}</option>`).join('');
+    wrap.innerHTML = `
+        <div class="guide-section-label">Edit Guild Info</div>
+        <input type="text" id="guildEditName" class="account-input" maxlength="24" value="${blEscapeHtml(g.name)}">
+        <input type="text" id="guildEditAvatar" class="account-input" maxlength="4" value="${blEscapeHtml(g.avatar || '🏯')}">
+        <select id="guildEditBanner" class="account-input">${bannerOpts}</select>
+        <textarea id="guildEditBio" class="profile-bio-textarea" maxlength="140">${blEscapeHtml(g.bio || '')}</textarea>
+        <div style="display:flex; gap:8px; align-items:center; margin:8px 0;">
+            <label style="font-size:10px; color:#8a8f98; flex:1;">
+                <input type="radio" name="guildEditJoinMode" value="manual" ${g.join_mode !== 'auto' ? 'checked' : ''}> By request
+            </label>
+            <label style="font-size:10px; color:#8a8f98; flex:1;">
+                <input type="radio" name="guildEditJoinMode" value="auto" ${g.join_mode === 'auto' ? 'checked' : ''}> Auto-join
+            </label>
+        </div>
+        <div style="display:flex; gap:6px;">
+            <input type="number" id="guildEditMinLevel" class="account-input" placeholder="Min Level" min="0" value="${g.min_level || 0}" style="flex:1;">
+            <input type="number" id="guildEditMinRp" class="account-input" placeholder="Min RP" min="0" value="${g.min_rank_points || 0}" style="flex:1;">
+        </div>
+        <button class="account-btn" style="width:100%;" onclick="blSaveGuildInfo()">Save Changes</button>`;
+}
+async function blSaveGuildInfo() {
+    const g = blGuild.guild;
+    const name = document.getElementById('guildEditName').value.trim();
+    const avatar = document.getElementById('guildEditAvatar').value.trim() || '🏯';
+    const banner = document.getElementById('guildEditBanner').value;
+    const bio = document.getElementById('guildEditBio').value.trim().slice(0, 140);
+    const joinMode = document.querySelector('input[name="guildEditJoinMode"]:checked').value;
+    const minLevel = parseInt(document.getElementById('guildEditMinLevel').value, 10) || 0;
+    const minRp = parseInt(document.getElementById('guildEditMinRp').value, 10) || 0;
+    const result = await blCallAccountRpc('update_guild_info', {
+        p_username: blAccount.username, p_guild_id: g.id, p_name: name, p_avatar: avatar,
+        p_banner_id: banner, p_bio: bio, p_join_mode: joinMode, p_min_level: minLevel, p_min_rank_points: minRp
+    });
+    if (!result || !result.ok) { alert((result && result.error) || 'Could not save changes.'); return; }
+    writeLog('🏯 Guild info updated.');
+    await blRefreshMyGuild();
+}
+
+async function blSyncGuildRpIfNeeded() {
+    if (!blAccount || !blGuild || !blGuild.in_guild || !blRanking) return;
+    const result = await blCallAccountRpc('sync_guild_member_rp', { p_username: blAccount.username, p_guild_id: blGuild.guild.id, p_ranking_points: blRanking.points });
+    if (result && result.ok && blGuild.guild) blGuild.guild.total_rp = result.total_rp;
+}
+
+async function blLoadGuildLeaderboard() {
+    const view = document.getElementById('guildBoardView');
+    view.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">Loading top guilds…</div>';
+    const result = await blCallAccountRpc('get_guild_leaderboard', {});
+    if (!result || !result.ok) { view.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0; color:#ff8888;">Could not load leaderboard.</div>'; return; }
+    const rows = result.guilds || [];
+    if (rows.length === 0) { view.innerHTML = '<div class="guide-card-desc" style="text-align:center; padding:14px 0;">No guilds founded yet — be the first.</div>'; return; }
+    view.innerHTML = rows.map(g => {
+        const medal = g.rank === 1 ? '👑' : g.rank === 2 ? '🥈' : g.rank === 3 ? '🥉' : `#${g.rank}`;
+        return `<div class="mhist-entry" style="background:transparent;">
+            <div style="width:30px; flex-shrink:0; font-size:14px; font-weight:700; color:#c7c9cf;">${medal}</div>
+            <div class="profile-avatar-circle" style="width:30px; height:30px; font-size:15px; flex-shrink:0; margin-right:8px;">${g.avatar || '🏯'}</div>
+            <div style="flex:1; min-width:0;">
+                <div style="font-size:12px; font-weight:700; color:#e8e0c9;">${blEscapeHtml(g.name)}${g.rank === 1 ? ' — Reigning Guild' : ''}</div>
+                <div style="font-size:9.5px; color:#5a5f68;">${g.member_count}/${GUILD_CAPACITY} members</div>
+            </div>
+            <div style="font-size:12px; font-weight:700; color:#e8e0c9; text-align:right;">${g.total_rp} RP</div>
+        </div>`;
+    }).join('');
 }
 
 // ---- Match invites: polling for and responding to incoming invites -------
