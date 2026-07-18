@@ -1958,8 +1958,8 @@
             <div class="gameover-mvp" id="gameoverMvp"></div>
             <div class="gameover-stats" id="gameoverStats"></div>
             <div class="gameover-actions">
-                <button class="gameover-btn gameover-btn-primary" onclick="handleRematchClick()">🔁 Instant Rematch</button>
-                <button class="gameover-btn" onclick="resetToSetup()">Return to Root</button>
+                <button class="gameover-btn gameover-btn-primary" onclick="handleRematchClick()">Rematch</button>
+                <button class="gameover-btn" onclick="resetToSetup()">Return</button>
             </div>
             <button class="gameover-link-btn" onclick="showMatchSummaryModal()">View Full Match Summary →</button>
         </div>
@@ -6880,7 +6880,7 @@ function hasValidTargets(card, allies, enemies) {
     } 
 
     if (card.name === 'Mage') {
-        let hasDeadAllies = allies.some(c => c.hex <= 0 && c.name !== 'Spy');
+        let hasDeadAllies = allies.some(c => c.hex <= 0 && c.name !== 'Spy' && !c.isHeroic);
         let hasEnemyEntities = enemies.some(c => c.hex > 0 && !c.imprisoned && c.tag === 'Entity');
         return hasDeadAllies || hasEnemyEntities;
     }
@@ -9412,7 +9412,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         writeLog(`⚔️ Bot Knight strikes enemy ${targetPlayer.name}.`);
                     }
                 } else if (aiActor.name === 'Mage') {
-                    let deadBots = gameState.p2.filter(c => c.hex <= 0 && c.name !== 'Spy');
+                    let deadBots = gameState.p2.filter(c => c.hex <= 0 && c.name !== 'Spy' && !c.isHeroic);
                     if (deadBots.length > 0 && aiActor.hex >= 1) {
                         aiActor.hex -= 1;
                         deadBots[0].hex = 1;
@@ -9908,10 +9908,10 @@ function renderScene() {
                 playDefeatFX();
             }
         }
-        if (!matchSummaryShown) {
-            matchSummaryShown = true;
-            setTimeout(showMatchSummaryModal, 650);
-        }
+        // Match Summary no longer auto-pops on game over — the game-over
+        // overlay is the primary screen now. Still flagged here so it isn't
+        // considered "unshown" elsewhere; opened on demand via its link.
+        matchSummaryShown = true;
         if (!matchRecorded) {
             matchRecorded = true;
             recordMultiplayerMatchIfNeeded();
@@ -9937,7 +9937,7 @@ function renderScene() {
             if (m.startsWith('reporter_heal_') && !isDead && !card.imprisoned && card.hex < card.maxHex) isEligibleAlly = true;
             if (m === 'hood_step2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
             if (m === 'mecha_hood_share_2' && !isDead && !card.imprisoned && card.id !== gameState.targetingMode.actorId) isEligibleAlly = true;
-            if (m.startsWith('mage_revive_') && isDead && card.name !== 'Spy') isEligibleAlly = true;
+            if (m.startsWith('mage_revive_') && isDead && card.name !== 'Spy' && !card.isHeroic) isEligibleAlly = true;
             if (m.startsWith('warlock_release_') && card.imprisoned && card.name !== 'Spy') isEligibleAlly = true;
             if (m === 'warden_jailbreak' && card.imprisoned && card.name !== 'Spy') isEligibleAlly = true;
             if (m === 'mecha_select_partner' && !isDead && !card.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(card.name)) isEligibleAlly = true;
