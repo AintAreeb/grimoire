@@ -4430,7 +4430,22 @@ function queueRecap(kind, card, opts = {}) {
     if (gameState.lowTimeAnimationsOff) return;
     if (!RECAP_STYLES[kind]) return;
     if (!card && !opts.name) return;
-    recapQueue.push({ kind, name: opts.name || card.name, side: opts.side || cardSideLabel(card) });
+    const event = { kind, name: opts.name || card.name, side: opts.side || cardSideLabel(card) };
+    // Online vs-player: mirror this recap to the opponent's screen the same
+    // way combat-log lines are (see writeLog/finalizeActiveTurn). opts.sync
+    // === false marks an event already being replayed FROM the opponent, so
+    // it doesn't get bounced straight back to them.
+    if (mp.isMultiplayer && opts.sync !== false) {
+        mpPendingRecapEvents.push(event);
+    }
+    // A single move can trigger a burst of 2-3+ recap popups back-to-back
+    // (a kill, plus a shield block, plus a poison tick...), which reads as
+    // repetitive noise rather than useful information. Only ever show ONE
+    // per burst: if something is already playing or already queued, any
+    // further event from the same move is simply dropped, not queued up
+    // behind it.
+    if (recapPlaying || recapQueue.length > 0) return;
+    recapQueue.push(event);
     tryPlayRecapQueue();
 }
 
@@ -5723,7 +5738,7 @@ function showTopMode(mode, btnEl) {
     document.getElementById('mpPanel').style.display = (mode === 'mp') ? 'block' : 'none';
 }
 
-function writeLog(text) {
+function writeLog(text, opts = {}) {
     const log = document.getElementById('combatLog');
     log.innerHTML += `<div>» ${text}</div>`;
     log.scrollTop = log.scrollHeight;
@@ -5738,6 +5753,17 @@ function writeLog(text) {
             state: deepCloneGameState(gameState)
         });
     } catch (e) { /* replay is best-effort — never let logging break the match */ }
+    // Online vs-player: every line generated while resolving MY move gets
+    // buffered so it can be shipped over in the next turnState payload and
+    // replayed on the opponent's screen (see finalizeActiveTurn /
+    // mpHandleMessage's 'turnState' branch). Without this, the opponent's
+    // device only ever received the final board state, never any
+    // description of what actually happened to produce it — so their moves
+    // were silent. Meta lines (chat echoes, undo negotiation, "waiting for
+    // opponent") pass opts.sync=false so they aren't rebroadcast.
+    if (mp.isMultiplayer && opts.sync !== false) {
+        mpPendingLogLines.push(text);
+    }
 }
 
 // ---- Quick Chat text presets ---------------------------------------------
@@ -5923,7 +5949,7 @@ function toggleCommsMenu() {
     toggleBtn.innerText = isOpen ? '✕' : '•••';
 }
 function sendChatPreset(msg) {
-    writeLog(`🗨️ You: ${msg}`);
+    writeLog(`🗨️ You: ${msg}`, { sync: false });
     if (mp.isMultiplayer && mp.sendMsg) {
         mp.sendMsg({ type: 'chatMsg', text: msg }, mp.peerId);
     }
@@ -6072,6 +6098,8 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
     gameOverVibrated = false;
     gameOverFXPlayed = false;
     gameState.lowTimeAnimationsOff = false;
+    mpPendingLogLines = [];
+    mpPendingRecapEvents = [];
     hideGameOverOverlay();
     matchStats = {};
     lastGrimsAwarded = null;
@@ -6153,7 +6181,7 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
         if (gameState.currentTurn === 1) {
             startMoveTimer(1);
         } else {
-            writeLog("⚡ Waiting for opponent's move...");
+            writeLog("⚡ Waiting for opponent's move...", { sync: false });
         }
     }
 }
@@ -6239,6 +6267,13 @@ let mp = {
     roomAttempt: 0,      // bumped each time mpEscalateMatchConnection forces a fresh room
     cachedSquadsPayload: null // side 1's built squads, kept so a reconnect resend doesn't re-roll them
 };
+
+// Accumulate this device's own combat-log lines and recap events as they
+// happen, so the next 'turnState' send can carry a description of what the
+// move actually did — not just the resulting board state. Flushed (read +
+// cleared) at the point a turnState is sent; see finalizeActiveTurn.
+let mpPendingLogLines = [];
+let mpPendingRecapEvents = [];
 
 function mpLog(text) {
     const el = document.getElementById('mpStatus');
@@ -7157,8 +7192,25 @@ function mpHandleMessage(data, peerId) {
         undoState.incomingRequest = false;
         undoState.awaitingResponse = false;
         undoState.waitingForSync = false;
+        let restored = mpRestoreFromWire(data.payload);
+        // Replay what the opponent's move actually did — their combat-log
+        // lines, and one recap popup — before/alongside applying the board
+        // state below. Without this, the opponent's moves landed silently:
+        // the board just changed with no explanation, unlike the bot's
+        // moves (which narrate themselves locally as they execute). Passed
+        // with sync:false so this device doesn't bounce them straight back.
+        (restored.logLines || []).forEach(line => writeLog(line, { sync: false }));
+        (restored.recapEvents || []).forEach(ev => queueRecap(ev.kind, null, {
+            name: ev.name,
+            // Recorded from the opponent's own perspective ("YOUR SQUAD" /
+            // "ENEMY SQUAD" as seen on THEIR screen) — flip it for mine.
+            side: ev.side === 'YOUR SQUAD' ? 'ENEMY SQUAD' : (ev.side === 'ENEMY SQUAD' ? 'YOUR SQUAD' : ev.side),
+            sync: false
+        }));
+        delete restored.logLines;
+        delete restored.recapEvents;
         let _mpStatsSnapshot = captureEffectSnapshot(null);
-        Object.assign(gameState, mpRestoreFromWire(data.payload));
+        Object.assign(gameState, restored);
         statsRecordFromSnapshot(_mpStatsSnapshot);
         abortTargetingSequence();
         mp.phase = 'battle';
@@ -7216,11 +7268,11 @@ function mpHandleMessage(data, peerId) {
         renderScene();
         if (!gameState.isGameOver) {
             if (gameState.currentTurn === 1) startMoveTimer(1);
-            else writeLog("⚡ Waiting for opponent's move...");
+            else writeLog("⚡ Waiting for opponent's move...", { sync: false });
         }
         mpSaveSnapshot();
     } else if (data.type === 'chatMsg') {
-        writeLog(`🗨️ Opponent: ${data.text}`);
+        writeLog(`🗨️ Opponent: ${data.text}`, { sync: false });
     } else if (data.type === 'resyncResponseNone') {
         mpHideReconnectBanner();
         mpLog("Couldn't find your match anymore — it may have ended.");
@@ -7241,11 +7293,11 @@ function mpHandleMessage(data, peerId) {
         undoState.awaitingResponse = false;
         if (data.accepted) {
             applyUndoLocally();
-            writeLog('↩️ Opponent accepted — your last move was undone.');
+            writeLog('↩️ Opponent accepted — your last move was undone.', { sync: false });
             blVibrate(60);
             mp.sendMsg({ type: 'undoApplied', payload: mpSanitizeForWire(mpBuildUndoAppliedPayload()) }, peerId);
         } else {
-            writeLog('❌ Opponent declined your undo request.');
+            writeLog('❌ Opponent declined your undo request.', { sync: false });
             renderUndoUI();
         }
     } else if (data.type === 'undoApplied') {
@@ -7257,7 +7309,7 @@ function mpHandleMessage(data, peerId) {
         abortTargetingSequence();
         mpSaveSnapshot();
         renderScene();
-        writeLog("↩️ Opponent's move was undone — it's their turn again.");
+        writeLog("↩️ Opponent's move was undone — it's their turn again.", { sync: false });
         blVibrate(60);
     } else if (data.type === 'undoCancel') {
         if (undoState.incomingRequest) {
@@ -8919,6 +8971,18 @@ function mpBuildSwappedStatePayload() {
     };
 }
 
+// Reads out everything buffered by writeLog/queueRecap since the last
+// turnState was sent (i.e. everything that happened resolving THIS move),
+// then clears the buffers so the next move starts collecting fresh. Called
+// right before a 'turnState' send so the opponent's device can replay what
+// actually happened instead of just snapping to the resulting board state.
+function mpFlushPendingEvents() {
+    const flushed = { logLines: mpPendingLogLines, recapEvents: mpPendingRecapEvents };
+    mpPendingLogLines = [];
+    mpPendingRecapEvents = [];
+    return flushed;
+}
+
 function finalizeActiveTurn(actingCardId) {
     // This move is now locked in — the state captured at the start of THIS
     // turn (before the move that just happened) becomes what Undo targets,
@@ -8962,7 +9026,8 @@ function finalizeActiveTurn(actingCardId) {
         // reflects the real ending board instead of freezing stale.
         if (mp.isMultiplayer) {
             mpSaveSnapshot();
-            mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) }, mp.peerId);
+            let payload = Object.assign(mpBuildSwappedStatePayload(), mpFlushPendingEvents());
+            mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(payload) }, mp.peerId);
         }
         return;
     }
@@ -8977,7 +9042,8 @@ function finalizeActiveTurn(actingCardId) {
         // getting stuck with both screens reading "opponent's turn".
         mpSaveSnapshot();
         renderScene();
-        mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(mpBuildSwappedStatePayload()) }, mp.peerId);
+        let payload = Object.assign(mpBuildSwappedStatePayload(), mpFlushPendingEvents());
+        mp.sendMsg({ type: 'turnState', payload: mpSanitizeForWire(payload) }, mp.peerId);
         return;
     }
     if (gameState.isLocalMultiplayer) {
@@ -9077,6 +9143,11 @@ function applyUndoLocally() {
     undoState.pendingSnapshot = null;
     undoState.awaitingResponse = false;
     undoState.waitingForSync = false;
+    // The move being taken back may have buffered log lines/recap events
+    // for the next turnState send — discard them, since that move never
+    // happened as far as the opponent should now be told.
+    mpPendingLogLines = [];
+    mpPendingRecapEvents = [];
     abortTargetingSequence(); // also re-renders
     renderScene();
     mpSaveSnapshot(); // no-op outside multiplayer
@@ -9099,14 +9170,14 @@ function respondToUndoRequest(accepted) {
     undoState.incomingRequest = false;
     if (accepted) {
         undoState.waitingForSync = true;
-        writeLog('↩️ You accepted the undo request — syncing the board...');
+        writeLog('↩️ You accepted the undo request — syncing the board...', { sync: false });
         renderScene();
         mp.sendMsg({ type: 'undoResponse', accepted: true }, mp.peerId);
         // The actual reverted board arrives next as 'undoApplied' (see
         // mpHandleMessage) — nothing more to do locally until then.
     } else {
         mp.sendMsg({ type: 'undoResponse', accepted: false }, mp.peerId);
-        writeLog('❌ You declined the undo request.');
+        writeLog('❌ You declined the undo request.', { sync: false });
         renderScene();
         if (gameState.currentTurn === 1 && !gameState.isGameOver) startMoveTimer(1);
     }
