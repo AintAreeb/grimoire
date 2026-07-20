@@ -1358,6 +1358,13 @@
         .lchat-friend-row:active { border-color: #ff3333; }
         .lchat-friend-row-name { flex: 1; font-size: 12px; font-weight: 600; color: #e8e0c9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .lchat-friend-row-arrow { color: #5a5f68; font-size: 14px; }
+        .lchat-friend-row-unread { width: 8px; height: 8px; border-radius: 50%; background: #ff3333; flex-shrink: 0; margin-right: 2px; }
+        /* Presence dot — small overlay on avatar circles showing online status */
+        .presence-dot {
+            position: absolute; width: 9px; height: 9px; border-radius: 50%;
+            background: #5a5f68; border: 2px solid #14131a; bottom: -1px; right: -1px;
+        }
+        .presence-dot.is-online { background: #35d46a; }
         .lchat-input {
             flex: 1; background: #0d0c14; color: #e8e0c9; border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px; padding: 9px 8px; font-size: 12px; min-width: 0;
@@ -1864,7 +1871,10 @@
                         🏯 Guild
                         <span id="guildReqBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3333; color:#e8e0c9; border-radius:50%; width:16px; height:16px; font-size:9px; line-height:16px; text-align:center; font-weight:700;"></span>
                     </button>
-                    <button class="account-btn account-btn-alt" onclick="openLobbyChatModal()">💬 Lobby Chat</button>
+                    <button class="account-btn account-btn-alt" style="position:relative;" onclick="openLobbyChatModal()">
+                        💬 Lobby Chat
+                        <span id="lobbyChatBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3333; width:10px; height:10px; border-radius:50%; border:2px solid #14131a;"></span>
+                    </button>
                     <button class="account-btn account-btn-alt" onclick="blLogout()">Log Out</button>
                 </div>
             </div>
@@ -4934,6 +4944,8 @@ function blRenderAccountUI() {
         blFlushPendingMatches();
         blFetchMyLevelStats();
         blRefreshMyGuild();
+        blTouchPresence();
+        blCheckLobbyChatUnread();
     } else {
         loggedOut.style.display = 'block';
         loggedIn.style.display = 'none';
@@ -4953,6 +4965,9 @@ function blRenderAccountUI() {
         blRenderRankBadge();
         blRenderLevelBadge();
         blUpdateGuildReqBadge();
+        blLobbyChatUnread = { dms: [] };
+        blUpdateLobbyChatBadge();
+        blOnlineFriends = new Set();
     }
 }
 
@@ -5006,7 +5021,13 @@ function blStartSessionPolling() {
     blSessionPollTimer = setInterval(async () => {
         if (!blAccount) { blStopSessionPolling(); return; }
         const stillValid = await blCheckSessionStillValid();
-        if (!stillValid) blForceLogoutFromElsewhere();
+        if (!stillValid) { blForceLogoutFromElsewhere(); return; }
+        blTouchPresence();
+        blCheckLobbyChatUnread();
+        if (document.getElementById('friendsModal').style.display === 'flex' ||
+            (document.getElementById('lobbyChatModal').style.display === 'flex' && lobbyChatChannel === 'friends' && !lobbyChatFriendTarget)) {
+            blRefreshFriendsPresence();
+        }
     }, 20000);
 }
 
@@ -5141,6 +5162,42 @@ async function blRefreshFriends() {
     blRenderFriendsList();
     blRenderFriendsRequests();
     blUpdateFriendsBadge();
+    blRefreshFriendsPresence();
+}
+
+// ----------------------------------------------------------------------------
+// PRESENCE (online/offline dots) — backed by the same Supabase project, see
+// grimoire_presence_setup.sql for the one-time database setup (adds a
+// player_presence table + touch_presence/get_friends_presence RPCs). We touch
+// our own presence on the existing 20s session-poll tick (cheap, no extra
+// timer), and refresh friends' presence whenever the friends list or the
+// lobby chat friend picker is shown.
+// ----------------------------------------------------------------------------
+let blOnlineFriends = new Set();
+
+async function blRefreshFriendsPresence() {
+    if (!blAccount) return;
+    const names = (blFriendsData.friends || []).slice();
+    if (names.length === 0) { blOnlineFriends = new Set(); return; }
+    const result = await blCallAccountRpc('get_friends_presence', { p_usernames: names });
+    if (!result || !result.ok) return;
+    blOnlineFriends = new Set(result.online || []);
+    blApplyPresenceDots();
+}
+
+function blApplyPresenceDots() {
+    const friends = blFriendsData.friends || [];
+    friends.forEach((name, i) => {
+        const dot = document.getElementById(`friendPresence-${i}`);
+        if (dot) dot.classList.toggle('is-online', blOnlineFriends.has(name));
+        const lchatDot = document.getElementById(`lchatFriendPresence-${i}`);
+        if (lchatDot) lchatDot.classList.toggle('is-online', blOnlineFriends.has(name));
+    });
+}
+
+async function blTouchPresence() {
+    if (!blAccount) return;
+    blCallAccountRpc('touch_presence', { p_username: blAccount.username });
 }
 
 function blRenderFriendsList() {
@@ -5154,7 +5211,7 @@ function blRenderFriendsList() {
         <div class="guide-card-entry pbanner-strip" id="friendRow-${i}" style="margin-bottom:8px;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                 <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                    <div class="profile-avatar-circle" id="friendAvatar-${i}" style="width:30px; height:30px; font-size:15px; flex-shrink:0;">🧙</div>
+                    <div class="profile-avatar-circle" id="friendAvatar-${i}" style="width:30px; height:30px; font-size:15px; flex-shrink:0; position:relative;"><span id="friendAvatarEmoji-${i}">🧙</span><span class="presence-dot" id="friendPresence-${i}"></span></div>
                     <span class="guide-card-name" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${blEscapeHtml(name)}</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; flex-shrink:0;">
@@ -5171,12 +5228,13 @@ function blRenderFriendsList() {
     `).join('');
     friends.forEach((name, i) => {
         blFetchUserMini(name).then(mini => {
-            const avEl = document.getElementById(`friendAvatar-${i}`);
+            const avEl = document.getElementById(`friendAvatarEmoji-${i}`);
             if (avEl) avEl.textContent = mini.avatar;
             const rowEl = document.getElementById(`friendRow-${i}`);
             if (rowEl) blApplyBannerToEl(rowEl, mini.bannerId);
         });
     });
+    blApplyPresenceDots();
 }
 
 function blToggleInviteChooser(i) {
@@ -5415,6 +5473,7 @@ let lobbyChatFriendTarget = null; // username of the friend the DM thread is ope
 let lobbyChatMessages = { universal: [], guild: [], friends: {} }; // friends is keyed by the other username
 let lobbyChatPollTimer = null;
 let lobbyChatSending = false;
+let blLobbyChatUnread = { dms: [] }; // list of usernames with unread DMs
 
 function openLobbyChatModal() {
     if (!blAccount) return;
@@ -5509,10 +5568,43 @@ async function blFetchLobbyChatMessages() {
     if (channel === 'friends') {
         lobbyChatMessages.friends[target] = result.messages || [];
         if (lobbyChatChannel === 'friends' && lobbyChatFriendTarget === target) renderLobbyChatMessages();
+        blMarkLobbyChatRead(target);
     } else {
         lobbyChatMessages[channel] = result.messages || [];
         if (lobbyChatChannel === channel) renderLobbyChatMessages();
     }
+}
+
+// ----------------------------------------------------------------------------
+// UNREAD BADGE (friend DMs only) — backed by the same Supabase project, see
+// grimoire_unread_and_presence_setup.sql for the one-time database setup
+// (adds a lobby_chat_reads table + get_lobby_chat_unread_status/
+// mark_lobby_chat_read RPCs). We poll the unread status on the same 20s tick
+// as session polling so the red dot on the Lobby Chat button lights up even
+// while the modal is closed, and we mark a DM thread read the moment it's
+// fetched.
+// ----------------------------------------------------------------------------
+async function blCheckLobbyChatUnread() {
+    if (!blAccount) return;
+    const result = await blCallAccountRpc('get_lobby_chat_unread_status', { p_username: blAccount.username });
+    if (!result || !result.ok) return;
+    blLobbyChatUnread = { dms: result.dm_unread_from || [] };
+    blUpdateLobbyChatBadge();
+    const modalOpen = document.getElementById('lobbyChatModal') && document.getElementById('lobbyChatModal').style.display !== 'none';
+    if (modalOpen && lobbyChatChannel === 'friends' && !lobbyChatFriendTarget) renderLobbyChatMessages();
+}
+
+function blUpdateLobbyChatBadge() {
+    const badge = document.getElementById('lobbyChatBadge');
+    if (!badge) return;
+    badge.style.display = blLobbyChatUnread.dms.length > 0 ? 'block' : 'none';
+}
+
+async function blMarkLobbyChatRead(target) {
+    if (!blAccount) return;
+    await blCallAccountRpc('mark_lobby_chat_read', { p_username: blAccount.username, p_to_username: target });
+    blLobbyChatUnread.dms = blLobbyChatUnread.dms.filter(n => n !== target);
+    blUpdateLobbyChatBadge();
 }
 
 function renderLobbyChatMessages() {
@@ -5559,17 +5651,19 @@ function renderLobbyChatFriendPicker(el) {
     }
     el.innerHTML = friends.map((name, i) => `
         <div class="lchat-friend-row" onclick="selectLobbyChatFriend('${blEscapeJs(name)}')">
-            <div class="profile-avatar-circle" id="lchatFriendAv-${i}" style="width:28px; height:28px; font-size:14px; flex-shrink:0;">🧙</div>
+            <div class="profile-avatar-circle" id="lchatFriendAv-${i}" style="width:28px; height:28px; font-size:14px; flex-shrink:0; position:relative;"><span id="lchatFriendAvEmoji-${i}">🧙</span><span class="presence-dot" id="lchatFriendPresence-${i}"></span></div>
             <span class="lchat-friend-row-name">${blEscapeHtml(name)}</span>
+            ${blLobbyChatUnread.dms.includes(name) ? '<span class="lchat-friend-row-unread"></span>' : ''}
             <span class="lchat-friend-row-arrow">›</span>
         </div>
     `).join('');
     friends.forEach((name, i) => {
         blFetchUserMini(name).then(mini => {
-            const av = document.getElementById(`lchatFriendAv-${i}`);
+            const av = document.getElementById(`lchatFriendAvEmoji-${i}`);
             if (av) av.textContent = mini.avatar;
         });
     });
+    blRefreshFriendsPresence();
 }
 
 function blLobbyChatTimeAgo(iso) {
