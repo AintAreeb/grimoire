@@ -2300,6 +2300,7 @@ let gameState = {
     p1: [],
     p2: [],
     isGameOver: false,
+    forfeited: null, // 'opponent' | 'me' | null — set by endMatchByForfeit when a match ends via leave/disconnect
     difficulty: 'tactical',
     // Once the per-move clock drops to 8s or less (aliveCharacterCount() <= 4,
     // i.e. the endgame — see startMoveTimer), this flips true and stays true
@@ -2511,9 +2512,13 @@ function showGameOverOverlay() {
     overlay.classList.add(isWin ? 'gameover-win' : (isLoss ? 'gameover-loss' : 'gameover-draw'));
 
     document.getElementById('gameoverResult').innerText = isWin ? 'Victory' : (isLoss ? 'Defeat' : 'Stalemate');
-    document.getElementById('gameoverSubtitle').innerText = isWin
-        ? 'Your squad stands alone over the wreckage.'
-        : (isLoss ? 'Your squad has been wiped from the board.' : 'Both squads fell together. Nothing survived.');
+    document.getElementById('gameoverSubtitle').innerText = gameState.forfeited === 'opponent'
+        ? 'Your opponent left the match. Victory by forfeit.'
+        : (gameState.forfeited === 'me'
+            ? 'You left the match. Recorded as a defeat.'
+            : (isWin
+                ? 'Your squad stands alone over the wreckage.'
+                : (isLoss ? 'Your squad has been wiped from the board.' : 'Both squads fell together. Nothing survived.')));
 
     let mvp = statsFindMVP();
     const mvpEl = document.getElementById('gameoverMvp');
@@ -4793,9 +4798,18 @@ window.addEventListener('popstate', (e) => {
     if (prevModal && prevModal !== state.modal) bl_hideModalUI(prevModal);
     if (state.screen === 'setup') {
         const setupHidden = document.getElementById('setupView').style.display === 'none';
-        if (setupHidden) resetToSetup(true);
+        if (setupHidden) {
+            mpNotifyLeavingMatch();
+            resetToSetup(true);
+        }
     }
 });
+// Best-effort: if the tab/app is closed outright (not navigated away from
+// within the app), there's no confirm dialog possible — but the underlying
+// WebRTC data channel send is synchronous, so firing this here still has a
+// real chance of reaching the opponent before the connection actually
+// drops, sparing them the full disconnect grace window in mpHandlePeerLeave.
+window.addEventListener('pagehide', () => { try { mpNotifyLeavingMatch(); } catch (e) {} });
 
 // ============================================================================
 // ACCOUNTS (real, cross-device — backed by your own free Supabase project)
@@ -5956,15 +5970,32 @@ function sendChatPreset(msg) {
     closeChatModal();
 }
 
+// Notifies the opponent I'm leaving an in-progress multiplayer match and
+// records my own forfeit-loss (with rewards/RP) right now, while this
+// device is still around to report it. Shared by blConfirmBackFromMatch
+// (the in-app back button) and the popstate handler (hardware/browser back)
+// so leaving either way is treated identically — no silent-quit path that
+// skips notifying the opponent or recording the loss.
+function mpNotifyLeavingMatch() {
+    if (mp.isMultiplayer && mp.phase === 'battle' && !gameState.isGameOver) {
+        if (mp.sendMsg) { try { mp.sendMsg({ type: 'opponentLeftMatch' }, mp.peerId); } catch (e) {} }
+        endMatchByForfeit(2); // winnerSide 2 = opponent — I lose
+    }
+}
+
 // Confirms before leaving an in-progress match/draft, since doing so
-// forfeits it (and, in multiplayer, abandons the opponent mid-game).
+// forfeits it — in multiplayer, the opponent is told immediately and wins
+// on the spot, and this device's own loss (with rewards/RP) is recorded
+// right now, while it's still around to report it.
 function blConfirmBackFromMatch() {
     const matchOver = document.getElementById('resetButton').style.display !== 'none';
     if (matchOver) { resetToSetup(); return; }
     const msg = mp.isMultiplayer
-        ? "Leave this match? Your opponent will be left without you, and this counts as a loss."
+        ? "Leave this match? Your opponent wins immediately by forfeit, and the loss — with rewards/RP — is recorded for both of you."
         : "Leave this match? Your progress will be lost.";
-    if (confirm(msg)) resetToSetup();
+    if (!confirm(msg)) return;
+    mpNotifyLeavingMatch();
+    resetToSetup();
 }
 
 function resetToSetup(fromPopstate) {
@@ -6098,6 +6129,7 @@ function startBattleWithSquads(p1Squad, p2Squad, p1Tier, p2Tier, opts = {}) {
     gameOverVibrated = false;
     gameOverFXPlayed = false;
     gameState.lowTimeAnimationsOff = false;
+    gameState.forfeited = null;
     mpPendingLogLines = [];
     mpPendingRecapEvents = [];
     hideGameOverOverlay();
@@ -6265,7 +6297,8 @@ let mp = {
     opponentUsername: null, // filled in via the 'identify' handshake, if both sides are logged in
     opponentCosmetics: { skin: null, theme: null }, // opponent's equipped card skin/board theme, filled in via 'identify'
     roomAttempt: 0,      // bumped each time mpEscalateMatchConnection forces a fresh room
-    cachedSquadsPayload: null // side 1's built squads, kept so a reconnect resend doesn't re-roll them
+    cachedSquadsPayload: null, // side 1's built squads, kept so a reconnect resend doesn't re-roll them
+    disconnectGraceHandle: null // pending "opponent may be reconnecting" timer — see mpHandlePeerLeave
 };
 
 // Accumulate this device's own combat-log lines and recap events as they
@@ -6409,6 +6442,59 @@ function attemptSoloRestoreOnLoad() {
     } catch (e) { return false; }
 }
 
+// Ends the match immediately because one side has left it — either a
+// deliberate quit (instant) or a connection that never came back after the
+// grace window below. Reuses the exact same win/loss detection, overlay,
+// and reward/RP pipeline every other match ending already goes through
+// (see renderScene -> evaluateWinThresholds) by simply wiping out the
+// losing side's squad, rather than keeping a second reward code path in
+// sync with the first. winnerSide 1 = me, 2 = opponent.
+function endMatchByForfeit(winnerSide) {
+    if (!mp.isMultiplayer || gameState.isGameOver) return;
+    stopMoveTimer();
+    if (botTurnTimeoutHandle) { clearTimeout(botTurnTimeoutHandle); botTurnTimeoutHandle = null; }
+    if (mp.disconnectGraceHandle) { clearTimeout(mp.disconnectGraceHandle); mp.disconnectGraceHandle = null; }
+    // imprisoned=true (not just hex=0) so this can't be undone by the
+    // Wendigo/Kitsune "untouchable at 1 hex" rule renderScene applies right
+    // before evaluateWinThresholds checks for survivors.
+    const losingSquad = winnerSide === 1 ? gameState.p2 : gameState.p1;
+    losingSquad.forEach(c => { c.hex = 0; c.imprisoned = true; });
+    gameState.forfeited = winnerSide === 1 ? 'opponent' : 'me';
+    writeLog(winnerSide === 1
+        ? "🚪 Your opponent left the match — you win by forfeit!"
+        : "🚪 You left the match — this counts as a loss.", { sync: false });
+    abortTargetingSequence();
+    renderScene(); // evaluateWinThresholds sees the wipe, sets isGameOver, and the usual reward/RP flow fires
+    mpSaveSnapshot();
+}
+
+// Fired when trystero reports the opponent's connection is gone. A page
+// refresh looks IDENTICAL to this at the WebRTC level — the old connection
+// drops, then a new one joins moments later once the page reloads (see
+// mpAttemptReconnectOnLoad) — so this can't forfeit the instant it fires,
+// or every opponent refresh would wrongly end the match. Instead it waits
+// a short grace window for them to reconnect; mpCancelPendingDisconnectForfeit
+// (called from onPeerJoin and on receipt of any message) cancels it if they
+// do. Only an ACTUAL leave (see blConfirmBackFromMatch's opponentLeftMatch
+// message) forfeits instantly, since that's an unambiguous, deliberate signal.
+const MP_DISCONNECT_GRACE_MS = 15000;
+function mpHandlePeerLeave() {
+    if (!mp.isMultiplayer || mp.phase !== 'battle' || gameState.isGameOver) return;
+    if (mp.disconnectGraceHandle) return; // already waiting on one
+    writeLog("⚠️ Opponent's connection dropped — waiting to see if they reconnect...", { sync: false });
+    mp.disconnectGraceHandle = setTimeout(() => {
+        mp.disconnectGraceHandle = null;
+        endMatchByForfeit(1);
+    }, MP_DISCONNECT_GRACE_MS);
+}
+function mpCancelPendingDisconnectForfeit() {
+    if (mp.disconnectGraceHandle) {
+        clearTimeout(mp.disconnectGraceHandle);
+        mp.disconnectGraceHandle = null;
+        writeLog('✅ Opponent reconnected.', { sync: false });
+    }
+}
+
 // Mirrors my current battle state to the opponent's perspective, same as
 // mpBuildSwappedStatePayload for a normal turn handoff, but also includes
 // whose turn it actually is right now (a plain turnState message always
@@ -6498,11 +6584,13 @@ function mpAttemptReconnectOnLoad() {
 
     const requestResync = (peerId) => {
         mp.peerId = peerId;
+        mpCancelPendingDisconnectForfeit();
         reliable.onPeerConnected();
         attachVoiceToRoom(mp.room);
         mp.sendMsg({ type: 'resyncRequest' }, peerId);
     };
     mp.room.onPeerJoin = requestResync;
+    mp.room.onPeerLeave = mpHandlePeerLeave;
     Object.keys(mp.room.getPeers()).forEach(requestResync);
 
     // If nobody answers in time, stop blocking the screen with the banner —
@@ -6537,6 +6625,7 @@ function mpShowJoinInput() {
 }
 
 function mpTeardownConnection() {
+    if (mp.disconnectGraceHandle) { clearTimeout(mp.disconnectGraceHandle); mp.disconnectGraceHandle = null; }
     if (mp.reliable && mp.reliable.dispose) {
         try { mp.reliable.dispose(); } catch (e) {}
     }
@@ -6557,7 +6646,7 @@ function mpTeardownConnection() {
     if (mp.isRanked && blAccount) {
         blCallAccountRpc('ranked_leave_queue', { p_username: blAccount.username });
     }
-    mp = { isMultiplayer: false, isRanked: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby', roomAttempt: 0, cachedSquadsPayload: null };
+    mp = { isMultiplayer: false, isRanked: false, room: null, roomName: null, sendMsg: null, reliable: null, peerId: null, mySide: null, squadMode: mp.squadMode, matched: false, draft: null, phase: 'lobby', roomAttempt: 0, cachedSquadsPayload: null, disconnectGraceHandle: null };
     const codeEl = document.getElementById('mpRoomCodeDisplay');
     if (codeEl) codeEl.innerText = '';
     mpLog('');
@@ -6707,12 +6796,14 @@ function mpConnectDirect(code) {
     mp.room.onPeerJoin = peerId => {
         mp.peerId = peerId;
         mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
+        mpCancelPendingDisconnectForfeit();
         reliable.onPeerConnected();
         attachVoiceToRoom(mp.room);
         mpLog('Opponent connected!');
         mpSaveSession();
         mpBeginSquadPhase();
     };
+    mp.room.onPeerLeave = mpHandlePeerLeave;
 }
 
 // ---- Ranked matchmaking (Supabase-backed queue, no room code needed) -----
@@ -6794,12 +6885,14 @@ function mpRankedConnectToRoom(roomName, opponentUsername) {
     mp.room.onPeerJoin = peerId => {
         mp.peerId = peerId;
         mp.mySide = (window.__trysteroSelfId < peerId) ? 1 : 2;
+        mpCancelPendingDisconnectForfeit();
         reliable.onPeerConnected();
         attachVoiceToRoom(mp.room);
         mpLog('Opponent connected!');
         mpSaveSession();
         mpBeginSquadPhase();
     };
+    mp.room.onPeerLeave = mpHandlePeerLeave;
     // The matched opponent's own client is responsible for joining this
     // same room; if their tab closed or their network died between being
     // matched and connecting, don't hang forever — surface it so the
@@ -7164,6 +7257,7 @@ function finishLocalDraft() {
 }
 
 function mpHandleMessage(data, peerId) {
+    mpCancelPendingDisconnectForfeit();
     // Resync responses reflect whatever phase the RESPONDING peer happens to
     // be in, which — if a prior message (e.g. a dropped final draftPick) left
     // the two sides briefly out of sync — can be genuinely behind where this
@@ -7183,6 +7277,10 @@ function mpHandleMessage(data, peerId) {
         mpStartBattleFromPayload(mpRestoreFromWire(data.payload));
     } else if (data.type === 'draftPick') {
         mpApplyDraftPick(data.cardName, mp.draft ? mp.draft.turnSide : null);
+    } else if (data.type === 'opponentLeftMatch') {
+        // A deliberate quit, not a dropped connection — end it now rather
+        // than waiting through the disconnect grace window.
+        endMatchByForfeit(1);
     } else if (data.type === 'turnState') {
         // Opponent just finished their turn — their message is already
         // mirrored to my perspective (see mpBuildSwappedStatePayload), so
