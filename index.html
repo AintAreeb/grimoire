@@ -72,6 +72,10 @@
             font-weight: 400;
         }
         
+        .log-wrap {
+            position: relative;
+            margin: 20px 0;
+        }
         .log { 
             background: #0d0c14; 
             padding: 12px; 
@@ -81,7 +85,6 @@
             font-size: 11px; 
             border: 1px solid rgba(255, 255, 255, 0.08); 
             border-radius: 8px; 
-            margin: 20px 0; 
             color: #4af7a7; 
             line-height: 1.4; 
             box-shadow: inset 0 1px 12px rgba(0,0,0,0.5);
@@ -1568,22 +1571,26 @@
            ACTION RECAP OVERLAY — "Among Us"-style kill cam for eliminations,
            imprisonments, heals, revives, poison, shields, and lockdowns.
            Purely cosmetic: sits above everything, never intercepts clicks.
+           Anchored to the engine log's box (top/left/width/height set via JS
+           in tryPlayRecapQueue) instead of covering the full viewport.
         ==================================================================== */
         .recap-overlay {
-            position: fixed;
+            position: absolute;
             inset: 0;
-            z-index: 9999;
+            z-index: 50;
             display: flex;
             align-items: center;
             justify-content: center;
             background: rgba(3, 2, 8, 0);
             opacity: 0;
             pointer-events: none;
+            border-radius: 8px;
+            overflow: hidden;
             transition: opacity 0.28s ease, background 0.28s ease;
         }
         .recap-overlay.recap-show {
             opacity: 1;
-            background: rgba(3, 2, 8, 0.9);
+            background: rgba(3, 2, 8, 1);
         }
         .recap-flash {
             position: absolute;
@@ -1598,22 +1605,27 @@
         }
         .recap-content {
             position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 8px;
             text-align: center;
-            transform: scale(0.3) translateY(40px);
+            transform: scale(0.3) translateY(10px);
             opacity: 0;
         }
         .recap-overlay.recap-show .recap-content {
             animation: recapPop 0.6s cubic-bezier(.17,.89,.32,1.49) forwards;
         }
         @keyframes recapPop {
-            0% { transform: scale(0.25) translateY(50px) rotate(-6deg); opacity: 0; }
-            55% { transform: scale(1.14) translateY(-8px) rotate(2deg); opacity: 1; }
+            0% { transform: scale(0.25) translateY(14px) rotate(-6deg); opacity: 0; }
+            55% { transform: scale(1.08) translateY(-2px) rotate(2deg); opacity: 1; }
             100% { transform: scale(1) translateY(0) rotate(0deg); opacity: 1; }
         }
         .recap-icon {
-            font-size: 92px;
+            font-size: 22px;
             line-height: 1;
-            filter: drop-shadow(0 0 34px var(--recap-color, #ff3333));
+            filter: drop-shadow(0 0 12px var(--recap-color, #ff3333));
             animation: recapIconPulse 1.1s ease-in-out infinite;
         }
         @keyframes recapIconPulse {
@@ -1621,28 +1633,28 @@
             50% { transform: scale(1.09); }
         }
         .recap-label {
-            margin-top: 16px;
-            font-size: 15px;
+            font-size: 9px;
             font-weight: 800;
-            letter-spacing: 0.16em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--recap-color, #ff3333);
-            text-shadow: 0 0 22px var(--recap-color, #ff3333);
+            text-shadow: 0 0 10px var(--recap-color, #ff3333);
+            white-space: nowrap;
         }
         .recap-name {
-            margin-top: 8px;
-            font-size: 24px;
+            font-size: 12px;
             font-weight: 700;
             color: #e8e0c9;
             letter-spacing: 0.01em;
+            white-space: nowrap;
         }
         .recap-side {
-            margin-top: 8px;
-            font-size: 10px;
+            font-size: 8px;
             color: #8a8f98;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.08em;
             font-weight: 600;
+            white-space: nowrap;
         }
 
         /* ============================================================
@@ -1996,7 +2008,18 @@
         <div class="squad-title" id="p2Title" style="margin-top:0;">Miasma</div>
         <div class="squad" id="p2Field"></div>
 
-        <div class="log" id="combatLog"></div>
+        <div class="log-wrap" id="combatLogWrap">
+            <div class="log" id="combatLog"></div>
+            <div id="recapOverlay" class="recap-overlay">
+                <div class="recap-flash"></div>
+                <div class="recap-content">
+                    <div class="recap-icon" id="recapIcon">💀</div>
+                    <div class="recap-label" id="recapLabel">ELIMINATED</div>
+                    <div class="recap-name" id="recapName">Card</div>
+                    <div class="recap-side" id="recapSide"></div>
+                </div>
+            </div>
+        </div>
 
         <div class="squad-title-row">
             <span class="squad-title" id="p1Title" style="border-bottom:none; padding-bottom:0;">Arcanum</span>
@@ -2044,16 +2067,6 @@
             <button class="chat-custom-send-btn" onclick="sendChatCustom()">Send</button>
         </div>
         <button class="chat-close-btn" onclick="closeChatModal()">Close</button>
-    </div>
-
-    <div id="recapOverlay" class="recap-overlay">
-        <div class="recap-flash"></div>
-        <div class="recap-content">
-            <div class="recap-icon" id="recapIcon">💀</div>
-            <div class="recap-label" id="recapLabel">ELIMINATED</div>
-            <div class="recap-name" id="recapName">Card</div>
-            <div class="recap-side" id="recapSide"></div>
-        </div>
     </div>
 
     <div id="rankingModal" class="guide-modal rank-modal">
@@ -4456,6 +4469,22 @@ function startMoveTimer(side) {
     }, 1000);
 }
 
+// Penalty for letting the clock run out: one randomly-chosen alive,
+// non-imprisoned card on the offending side is cut for 1 Hex, same as any
+// other point of Hex damage (respects K-Shield, can trigger a kill recap,
+// and — since this runs before finalizeActiveTurn/renderScene — flows into
+// evaluateWinThresholds and the multiplayer turnState sync exactly like a
+// real move would). If the side has no eligible card (shouldn't normally
+// happen — the game would already be over), this is a no-op.
+function applyTimeoutPenalty(side) {
+    let team = side === 1 ? gameState.p1 : gameState.p2;
+    let alive = team.filter(c => c.hex > 0 && !c.imprisoned);
+    if (alive.length === 0) return;
+    let target = alive[Math.floor(Math.random() * alive.length)];
+    applyShieldedDamage(target, 1);
+    writeLog(`⏰ Time's up! ${target.name} is cut for 1 Hex as a skip penalty.`);
+}
+
 // Called when a move's clock hits zero. The player forfeits whatever move
 // they were mid-way through (any open targeting sequence is cancelled and
 // the turn passes to the bot untouched). The bot doesn't actually need a
@@ -4474,14 +4503,14 @@ function handleMoveTimeout(side) {
             document.getElementById('targetBar').style.display = 'none';
             document.getElementById('cancelActionBtn').style.display = 'none';
         }
-        writeLog("⏰ Time's up! Your move was forfeited.");
+        applyTimeoutPenalty(1);
         finalizeActiveTurn();
     } else if (side === 2) {
         // Safety guard: in multiplayer this should never fire, since no
         // local timer is ever started for the opponent's turn (each device
         // only clocks its own turn — see startBattleWithSquads/finalizeActiveTurn).
         if (mp.isMultiplayer) return;
-        writeLog("⏰ Bot ran out of time and forfeits its move.");
+        applyTimeoutPenalty(2);
         gameState.roundCount++;
         gameState.currentTurn = 1;
         renderScene();
@@ -4567,6 +4596,10 @@ function tryPlayRecapQueue() {
     recapPlaying = true;
     const event = recapQueue.shift();
     const style = RECAP_STYLES[event.kind];
+    // overlay is nested inside #combatLogWrap (position:relative) and is
+    // itself position:absolute; inset:0 in CSS — it always exactly covers
+    // the log box, however the page around it reflows, with no JS position
+    // math needed (and nothing that can drift out of sync with it).
     overlay.style.setProperty('--recap-color', style.color);
     document.getElementById('recapIcon').innerText = style.icon;
     document.getElementById('recapLabel').innerText = style.label;
@@ -7871,6 +7904,12 @@ function abortTargetingSequence() {
 function isValidSorcererHijackTarget(originalType, card, actorCard) {
     if (!card || card.hex <= 0 || card.imprisoned || card.isHeroic) return false;
 
+    // A hijacked card is forced to attack its own side, but must never be
+    // allowed to select ITSELF as that attack's target — e.g. a hijacked
+    // Killer executing itself, or a hijacked Dictator imprisoning itself.
+    let hijackedId = gameState.targetingMode.metadata && gameState.targetingMode.metadata.hijackedCardId;
+    if (hijackedId && card.id === hijackedId) return false;
+
     let roleDef = CARD_POOL.find(c => c.name === originalType);
     let roleTag = roleDef ? roleDef.tag : null;
     let roleIsWraith = (originalType === 'Wraith');
@@ -8680,7 +8719,26 @@ function runMechaAbilityPad(actorId) {
     let validAllies = gameState.p1.filter(c => c.hex > 0 && !c.imprisoned && ['Spy', 'Robber', 'Hood', 'Witch', 'Knight', 'Cop', 'Ninja'].includes(c.name));
     
     if (validAllies.length === 0) {
-        writeLog("🤖 Mecha found no valid components to fuse with.");
+        // No fusion partner exists — rather than a silent dead-end (the
+        // player couldn't do anything but pick a different card, which
+        // isn't possible if Mecha is the only usable card, e.g. under a
+        // Bartender forced-play lock), offer an explicit skip so the turn
+        // can still be passed. No Hex is spent and no cooldown is set,
+        // same as clicking Fuse never happened, other than the turn ending.
+        let msg = document.createElement('div');
+        msg.style.cssText = 'color:#8a8f98; font-size:12px; text-align:center; margin-bottom:6px;';
+        msg.innerText = 'No eligible components to fuse with.';
+        container.appendChild(msg);
+
+        let skipBtn = document.createElement('button');
+        skipBtn.className = 'btn';
+        skipBtn.style.margin = '2px 0';
+        skipBtn.style.background = '#444';
+        skipBtn.innerText = 'SKIP TURN';
+        skipBtn.onclick = () => handleMechaSkip(actorId);
+        container.appendChild(skipBtn);
+
+        document.getElementById('mechaChoiceModal').style.display = 'flex';
         return;
     }
     
@@ -8694,6 +8752,20 @@ function runMechaAbilityPad(actorId) {
         container.appendChild(b);
     });
     document.getElementById('mechaChoiceModal').style.display = 'flex';
+}
+
+// Ends the turn with Mecha having taken no action — used only when
+// runMechaAbilityPad found zero eligible fusion partners. Mirrors a normal
+// forfeited move: costs 1 Hex (same as any other card's base activation
+// cost) even though nothing landed, but sets no cooldown since the fusion
+// itself never actually happened.
+function handleMechaSkip(actorId) {
+    document.getElementById('mechaChoiceModal').style.display = 'none';
+    let actorCard = gameState.p1.find(c => c.id === actorId);
+    if (actorCard) actorCard.hex = Math.max(0, actorCard.hex - 1);
+    writeLog("🤖 Mecha found no valid components to fuse with and skips the turn (-1 Hex).");
+    gameState.p1LastMoveRole = null;
+    finalizeActiveTurn(actorId);
 }
 
 function handleMechaSelection(actorId, partnerId) {
@@ -9223,6 +9295,17 @@ function processSelectedTarget(targetId) {
         let meta = gameState.targetingMode.metadata;
         let hijackedCard = gameState.p1.find(c => c.id === meta.hijackedCardId) || gameState.p2.find(c => c.id === meta.hijackedCardId);
         let enemy1 = gameState.p2.find(c => c.id === gameState.targetingMode.firstTargetId);
+
+        // Defense-in-depth: the target list is already gated to exclude the
+        // hijacked card itself (see isValidSorcererHijackTarget and the
+        // sorcerer_hijacked_singer_step2 eligibility check above), but
+        // re-check here too so neither Singer target can ever land on the
+        // hijacked card itself.
+        if (meta.hijackedCardId && (enemy1.id === meta.hijackedCardId || enemy.id === meta.hijackedCardId)) {
+            writeLog(`🔮 Control Sequence: Singer had no legal target — hijack fizzled.`);
+            concludeTargetedMove(actorCard.id, baseMove);
+            return;
+        }
 
         applyShieldedDamage(enemy1, 1);
         if (!(enemy1.hex === 0 && enemy.hex === 1)) applyShieldedDamage(enemy, 1);
@@ -9799,8 +9882,14 @@ function diffP1Hit(snap) {
 // Sorcerer-hijack so all three "mimic another role" mechanics resolve
 // identically to how the player's versions resolve. Returns true if the
 // role had a usable target/effect this turn, false otherwise.
-function applyMimicRoleEffect(roleName, aiActor, verbPrefix) {
-    let enemyPool = getBotCandidatePool(aiActor, gameState.p1.filter(c => c.hex > 0 && !c.imprisoned), roleName);
+function applyMimicRoleEffect(roleName, aiActor, verbPrefix, excludeId) {
+    // excludeId is only passed by the Sorcerer-hijack call site (see below):
+    // a hijacked card is forced to attack its own side, but must never be
+    // allowed to target ITSELF. Actor/Dementor/Bartender mimics don't pass
+    // this — they're copying a dead or generic role's ability, not forcing
+    // a specific live card to act against itself, so there's nothing to
+    // exclude for them.
+    let enemyPool = getBotCandidatePool(aiActor, gameState.p1.filter(c => c.hex > 0 && !c.imprisoned && c.id !== excludeId), roleName);
     let allyPool = gameState.p2.filter(c => c.id !== aiActor.id && c.hex > 0 && !c.imprisoned);
     gameState.p2LastMoveRole = null;
     let copyExcluded = isBartenderCopyExcludedActor(aiActor);
@@ -10484,7 +10573,7 @@ function processBotTurnRoutine(isFollowUpAction = false, freeActionDepth = 0) {
                         // restoring 0 Hex to the wrong card.
                         let preHijackSnapshot = {};
                         gameState.p1.forEach(c => { preHijackSnapshot[c.id] = { hex: c.hex, imprisoned: c.imprisoned, poisoned: c.poisoned }; });
-                        let didSomething = applyMimicRoleEffect(hijacked.name, aiActor, `Bot Sorcerer (as ${hijacked.name})`);
+                        let didSomething = applyMimicRoleEffect(hijacked.name, aiActor, `Bot Sorcerer (as ${hijacked.name})`, hijacked.id);
                         if (didSomething) {
                             let hitCard = gameState.p1.find(c => {
                                 let before = preHijackSnapshot[c.id];
@@ -11133,7 +11222,7 @@ function renderScene() {
                 if (isValidSorcererHijackTarget(gameState.targetingMode.metadata.originalType, card, act)) {
                     isEligibleEnemy = true;
                 }
-            } else if (m === 'sorcerer_hijacked_singer_step2' && !isDead && !card.imprisoned && !card.isHeroic && card.tag !== 'Entity') {
+            } else if (m === 'sorcerer_hijacked_singer_step2' && !isDead && !card.imprisoned && !card.isHeroic && card.tag !== 'Entity' && card.id !== gameState.targetingMode.metadata.hijackedCardId) {
                 if (card.id === gameState.targetingMode.firstTargetId) {
                     isSelectedFirst = true;
                 } else {
