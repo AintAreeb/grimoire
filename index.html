@@ -2442,7 +2442,7 @@ let gameState = {
     // Per-move countdown: 2 seconds per character still alive (both squads
     // combined) at the moment the move begins. Recalculated fresh at the
     // start of every single move (player's or bot's).
-    moveTimer: { secondsLeft: 0, intervalId: null, forSide: null, endTime: 0, token: 0 },
+    moveTimer: { secondsLeft: 0, intervalId: null, forSide: null },
     // Local (same-device, pass-and-play) multiplayer. When true, there's no
     // bot AI and no network peer — both squads are played by humans sharing
     // this one screen, taking turns directly with no handoff step. The
@@ -4394,13 +4394,6 @@ function stopMoveTimer() {
         clearInterval(gameState.moveTimer.intervalId);
         gameState.moveTimer.intervalId = null;
     }
-    // Invalidate any in-flight interval callback that might still be queued
-    // (e.g. a tick that was already scheduled before this stop happened, or
-    // one left over from a background/foreground hiccup on mobile). Every
-    // tick checks this token before touching secondsLeft, so a stale one is
-    // now a harmless no-op instead of a second decrement landing on top of
-    // the current timer.
-    gameState.moveTimer.token++;
     blVibrateStop();
     let el = document.getElementById('moveTimer');
     if (el) { el.innerText = ''; el.classList.remove('timer-warning', 'timer-critical'); }
@@ -4452,39 +4445,15 @@ function startMoveTimer(side) {
     if (duration <= 8) gameState.lowTimeAnimationsOff = true;
     gameState.moveTimer.secondsLeft = duration;
     gameState.moveTimer.forSide = side;
-    // Anchor the countdown to a real end timestamp rather than counting
-    // "one tick = one second." setInterval is only a *request* to fire every
-    // 1000ms — it's not guaranteed, especially on mobile: a backgrounded
-    // WebView, a throttled tab, or the main thread being briefly busy can
-    // cause the browser to queue up and then fire several ticks back-to-back
-    // once it's free. If each of those ticks did secondsLeft--, the clock
-    // would burn through multiple seconds almost instantly, which is exactly
-    // the "counts 2 seconds in 1 real second" symptom. Deriving secondsLeft
-    // from (endTime - now) every tick makes the display self-correcting: no
-    // matter how ticks bunch up or get delayed, it always shows the true
-    // time remaining.
-    gameState.moveTimer.endTime = Date.now() + duration * 1000;
-    // Bump the token and capture it for this timer instance. If stopMoveTimer
-    // runs again later (new turn, undo, game over, etc.) the token moves on,
-    // so a straggling callback from *this* interval recognizes it's stale
-    // and quietly does nothing instead of double-ticking a newer timer.
-    let myToken = ++gameState.moveTimer.token;
     renderMoveTimerDisplay();
     gameState.moveTimer.intervalId = setInterval(() => {
-        if (gameState.moveTimer.token !== myToken) return;
         // Freeze the clock while a kill/move recap animation is on screen —
         // it's a full-screen overlay the player can't act during, so the
         // countdown shouldn't burn away behind it. Ticking just stalls here
-        // until recapPlaying drops back to false, then resumes normally. We
-        // push endTime forward by the paused amount so the clock resumes
-        // exactly where it left off instead of having "lost" that time.
-        if (recapPlaying) {
-            gameState.moveTimer.endTime += 1000;
-            return;
-        }
-        let secs = Math.ceil((gameState.moveTimer.endTime - Date.now()) / 1000);
-        gameState.moveTimer.secondsLeft = secs;
-        if (secs <= 0) {
+        // until recapPlaying drops back to false, then resumes normally.
+        if (recapPlaying) return;
+        gameState.moveTimer.secondsLeft--;
+        if (gameState.moveTimer.secondsLeft <= 0) {
             stopMoveTimer();
             handleMoveTimeout(side);
             return;
@@ -4496,7 +4465,7 @@ function startMoveTimer(side) {
         // for the last 5 seconds (each new call replaces the tail end of
         // the previous one), and stopMoveTimer() cuts it off the instant
         // the player acts or the clock is otherwise stopped.
-        if (side === 1 && secs <= 5) blVibrate(950);
+        if (side === 1 && gameState.moveTimer.secondsLeft <= 5) blVibrate(950);
     }, 1000);
 }
 
@@ -7911,18 +7880,6 @@ function openTargetingOverlay(actorId, actionKey, overlayInstruction, metadata =
 }
 
 function abortTargetingSequence() {
-    // Some moves (Sorcerer's hijack chief among them) spend their cost —
-    // 1 Hex, hasActivity, lastUsedRound — the moment a role/target-mode is
-    // picked, BEFORE the "choose target" step even begins. If the player
-    // then aborts at that "choose target" step, that cost must not be lost:
-    // restore the acting card to its exact pre-cost snapshot (the same
-    // snapshot already used elsewhere to refund a fully wasted hijack).
-    let snap = gameState.targetingMode.preEffectSnapshot;
-    let actorId = gameState.targetingMode.actorId;
-    if (snap && snap.actor && actorId) {
-        let actorCard = gameState.p1.find(c => c.id === actorId) || gameState.p2.find(c => c.id === actorId);
-        if (actorCard) Object.assign(actorCard, snap.actor);
-    }
     gameState.targetingMode.isActive = false;
     gameState.targetingMode.type = null;
     gameState.targetingMode.actorId = null;
