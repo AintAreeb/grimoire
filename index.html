@@ -38,7 +38,13 @@
            visual position while letting the theme background paint all the
            way to the top edge instead of being cut off by it. */
         #gameView.game-view-centered {
+            margin-left: -24px;
+            margin-right: -24px;
+            margin-bottom: -24px;
             margin-top: calc(-24px - env(safe-area-inset-top, 24px));
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-bottom: 24px;
             padding-top: calc(24px + env(safe-area-inset-top, 24px));
         }
 
@@ -469,30 +475,33 @@
 
         /* ====================================================================
            GAME THEMES — a separate cosmetic slot from Board Themes above.
-           Solid, fully opaque flat color across the ENTIRE #gameView — no
-           gradient, no fade, no cutout edge. This is the whole battlefield
-           background players actually see. Board Theme never touches this
-           property, so the two never fight over the cascade.
+           Fully opaque 135deg gradient (lighter top-left → darker
+           bottom-right) across the ENTIRE #gameView — no transparency, no
+           cutout edge, so nothing behind it ever bleeds through. Matches
+           the diagonal gradient look of the swatch shown for each theme in
+           the Skins modal (gametheme-preview-* below), instead of the flat
+           single color previously used here. Board Theme never touches
+           this property, so the two never fight over the cascade.
            ==================================================================== */
-        #gameView.game-theme-bloodmoon { background: #8c0a14; }
-        #gameView.game-theme-obsidianrift { background: #500078; }
-        #gameView.game-theme-parchmentnoir { background: #b4a06e; }
-        #gameView.game-theme-verdanthex { background: #1e8c5a; }
-        #gameView.game-theme-staticbloom { background: #ffcc00; }
-        #gameView.game-theme-ashenvigil { background: #9696a0; }
-        #gameView.game-theme-frostboundledger { background: #5ec8d8; }
-        #gameView.game-theme-neonunderworld { background: #ff00b4; }
-        #gameView.game-theme-aurumsanctum { background: #d4af37; }
-        #gameView.game-theme-crimsonabyss { background: #960a0a; }
-        #gameView.game-theme-lunarhollow { background: #96b4dc; }
-        #gameView.game-theme-emberwastes { background: #ff6e14; }
-        #gameView.game-theme-glacialexpanse { background: #96dcff; }
-        #gameView.game-theme-royalcourt { background: #a064dc; }
-        #gameView.game-theme-plagueward { background: #78a050; }
-        #gameView.game-theme-thunderscar { background: #78aaff; }
-        #gameView.game-theme-coralruin { background: #ff788c; }
-        #gameView.game-theme-ashfallbasin { background: #8c8278; }
-        #gameView.game-theme-starlitsanctum { background: #e6e6ff; }
+        #gameView.game-theme-bloodmoon { background: linear-gradient(135deg, #9e313a 0%, #62070e 100%); }
+        #gameView.game-theme-obsidianrift { background: linear-gradient(135deg, #6c298e 0%, #380054 100%); }
+        #gameView.game-theme-parchmentnoir { background: linear-gradient(135deg, #c0af85 0%, #7e704d 100%); }
+        #gameView.game-theme-verdanthex { background: linear-gradient(135deg, #429e74 0%, #15623f 100%); }
+        #gameView.game-theme-staticbloom { background: linear-gradient(135deg, #ffd429 0%, #b28f00 100%); }
+        #gameView.game-theme-ashenvigil { background: linear-gradient(135deg, #a7a7af 0%, #696970 100%); }
+        #gameView.game-theme-frostboundledger { background: linear-gradient(135deg, #78d1de 0%, #428c97 100%); }
+        #gameView.game-theme-neonunderworld { background: linear-gradient(135deg, #ff29c0 0%, #b2007e 100%); }
+        #gameView.game-theme-aurumsanctum { background: linear-gradient(135deg, #dbbc57 0%, #947a26 100%); }
+        #gameView.game-theme-crimsonabyss { background: linear-gradient(135deg, #a73131 0%, #690707 100%); }
+        #gameView.game-theme-lunarhollow { background: linear-gradient(135deg, #a7c0e2 0%, #697e9a 100%); }
+        #gameView.game-theme-emberwastes { background: linear-gradient(135deg, #ff853a 0%, #b24d0e 100%); }
+        #gameView.game-theme-glacialexpanse { background: linear-gradient(135deg, #a7e2ff 0%, #699ab2 100%); }
+        #gameView.game-theme-royalcourt { background: linear-gradient(135deg, #af7de2 0%, #70469a 100%); }
+        #gameView.game-theme-plagueward { background: linear-gradient(135deg, #8eaf6c 0%, #547038 100%); }
+        #gameView.game-theme-thunderscar { background: linear-gradient(135deg, #8eb8ff 0%, #5477b2 100%); }
+        #gameView.game-theme-coralruin { background: linear-gradient(135deg, #ff8e9e 0%, #b25462 100%); }
+        #gameView.game-theme-ashfallbasin { background: linear-gradient(135deg, #9e968e 0%, #625b54 100%); }
+        #gameView.game-theme-starlitsanctum { background: linear-gradient(135deg, #eaeaff 0%, #a1a1b2 100%); }
 
         /* Profile banners — one per board theme (20 total incl. default),
            so equipping a board theme also re-skins every profile view
