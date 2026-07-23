@@ -118,6 +118,10 @@
             margin-bottom: 12px; 
             text-transform: uppercase; 
             letter-spacing: 0.06em; 
+            background: rgba(10, 9, 16, 0.7);
+            padding: 5px 10px;
+            border-radius: 6px;
+            display: inline-block;
         }
         
         .move-timer {
@@ -141,13 +145,13 @@
         }
 
         .targeting-status { 
-            background: rgba(255, 170, 0, 0.1); 
+            background: rgba(30, 20, 4, 0.82); 
             color: #ffcc66; 
             text-align: center; 
             font-weight: 500; 
             padding: 6px 10px; 
             font-size: 10px; 
-            border: 1px solid rgba(255, 170, 0, 0.25); 
+            border: 1px solid rgba(255, 170, 0, 0.4); 
             border-radius: 6px; 
             margin-bottom: 10px; 
             display: none; 
@@ -255,11 +259,23 @@
             box-shadow: 0 0 20px rgba(51, 204, 255, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
         
+        /* Used to be opacity: 0.18 on the whole card, which faded its
+           background almost to nothing — fine against the old dark body
+           background, but against a bright Game Theme (pale blue, white,
+           etc.) that made dead cards nearly invisible, name and all. Keep
+           the card's own opaque dark background and grayscale filter for
+           the "dead" look, and dim only the name/tag/hex-or-DEAD text so
+           it stays legible while still reading as clearly deceased. */
         .card.dead { 
-            opacity: 0.18; 
-            background: rgba(255, 255, 255, 0.005); 
-            border-color: rgba(255, 255, 255, 0.02); 
+            opacity: 1; 
+            background: linear-gradient(180deg, #1b1c21 0%, #0d0e12 100%); 
+            border-color: rgba(255, 255, 255, 0.06); 
             filter: grayscale(100%);
+        }
+        .card.dead .card-title,
+        .card.dead .card-tag,
+        .card.dead .hearts {
+            opacity: 0.55;
         }
         
         /* A dead card that's also an eligible revive target (Mage) needs to
@@ -475,33 +491,34 @@
 
         /* ====================================================================
            GAME THEMES — a separate cosmetic slot from Board Themes above.
-           Fully opaque 135deg gradient (lighter top-left → darker
-           bottom-right) across the ENTIRE #gameView — no transparency, no
-           cutout edge, so nothing behind it ever bleeds through. Matches
-           the diagonal gradient look of the swatch shown for each theme in
-           the Skins modal (gametheme-preview-* below), instead of the flat
-           single color previously used here. Board Theme never touches
-           this property, so the two never fight over the cascade.
+           Fully opaque, flat, single color across the ENTIRE #gameView —
+           no gradient, no transparency, no cutout edge. Each value is the
+           EXACT same hex used for that theme's board-theme .log background
+           above (by design), so a player who equips the same theme in both
+           slots gets a completely seamless board — the log box disappears
+           into the battlefield instead of reading as a separate darker
+           panel sitting on top of it. Board Theme never touches this
+           property, so the two never fight over the cascade.
            ==================================================================== */
-        #gameView.game-theme-bloodmoon { background: linear-gradient(135deg, #9e313a 0%, #62070e 100%); }
-        #gameView.game-theme-obsidianrift { background: linear-gradient(135deg, #6c298e 0%, #380054 100%); }
-        #gameView.game-theme-parchmentnoir { background: linear-gradient(135deg, #c0af85 0%, #7e704d 100%); }
-        #gameView.game-theme-verdanthex { background: linear-gradient(135deg, #429e74 0%, #15623f 100%); }
-        #gameView.game-theme-staticbloom { background: linear-gradient(135deg, #ffd429 0%, #b28f00 100%); }
-        #gameView.game-theme-ashenvigil { background: linear-gradient(135deg, #a7a7af 0%, #696970 100%); }
-        #gameView.game-theme-frostboundledger { background: linear-gradient(135deg, #78d1de 0%, #428c97 100%); }
-        #gameView.game-theme-neonunderworld { background: linear-gradient(135deg, #ff29c0 0%, #b2007e 100%); }
-        #gameView.game-theme-aurumsanctum { background: linear-gradient(135deg, #dbbc57 0%, #947a26 100%); }
-        #gameView.game-theme-crimsonabyss { background: linear-gradient(135deg, #a73131 0%, #690707 100%); }
-        #gameView.game-theme-lunarhollow { background: linear-gradient(135deg, #a7c0e2 0%, #697e9a 100%); }
-        #gameView.game-theme-emberwastes { background: linear-gradient(135deg, #ff853a 0%, #b24d0e 100%); }
-        #gameView.game-theme-glacialexpanse { background: linear-gradient(135deg, #a7e2ff 0%, #699ab2 100%); }
-        #gameView.game-theme-royalcourt { background: linear-gradient(135deg, #af7de2 0%, #70469a 100%); }
-        #gameView.game-theme-plagueward { background: linear-gradient(135deg, #8eaf6c 0%, #547038 100%); }
-        #gameView.game-theme-thunderscar { background: linear-gradient(135deg, #8eb8ff 0%, #5477b2 100%); }
-        #gameView.game-theme-coralruin { background: linear-gradient(135deg, #ff8e9e 0%, #b25462 100%); }
-        #gameView.game-theme-ashfallbasin { background: linear-gradient(135deg, #9e968e 0%, #625b54 100%); }
-        #gameView.game-theme-starlitsanctum { background: linear-gradient(135deg, #eaeaff 0%, #a1a1b2 100%); }
+        #gameView.game-theme-bloodmoon { background: #150a0c; }
+        #gameView.game-theme-obsidianrift { background: #0a0710; }
+        #gameView.game-theme-parchmentnoir { background: #14120c; }
+        #gameView.game-theme-verdanthex { background: #0a1410; }
+        #gameView.game-theme-staticbloom { background: #14130a; }
+        #gameView.game-theme-ashenvigil { background: #101012; }
+        #gameView.game-theme-frostboundledger { background: #0a1214; }
+        #gameView.game-theme-neonunderworld { background: #12081a; }
+        #gameView.game-theme-aurumsanctum { background: #14110a; }
+        #gameView.game-theme-crimsonabyss { background: #150808; }
+        #gameView.game-theme-lunarhollow { background: #0c0e14; }
+        #gameView.game-theme-emberwastes { background: #150e08; }
+        #gameView.game-theme-glacialexpanse { background: #0a1216; }
+        #gameView.game-theme-royalcourt { background: #120c16; }
+        #gameView.game-theme-plagueward { background: #0e1208; }
+        #gameView.game-theme-thunderscar { background: #0a0e16; }
+        #gameView.game-theme-coralruin { background: #160a0e; }
+        #gameView.game-theme-ashfallbasin { background: #100f0e; }
+        #gameView.game-theme-starlitsanctum { background: #0c0c14; }
 
         /* Profile banners — one per board theme (20 total incl. default),
            so equipping a board theme also re-skins every profile view
@@ -697,9 +714,9 @@
         }
         
         .btn.cancel-btn { 
-            background: transparent; 
-            color: #8a8f98; 
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(10, 9, 16, 0.7); 
+            color: #d6dae2; 
+            border: 1px solid rgba(255, 255, 255, 0.18);
             margin-bottom: 10px; 
             width: 100%; 
             padding: 6px; 
@@ -708,9 +725,9 @@
             border-radius: 5px;
         }
         .btn.cancel-btn:hover {
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(10, 9, 16, 0.9);
             color: #e8e0c9;
-            border-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
         }
 
         .btn.diff-btn.diff-active {
@@ -873,12 +890,12 @@
         }
 
         .undo-btn {
-            background: transparent;
+            background: rgba(30, 20, 4, 0.75);
             color: #ffaa00;
             font-size: 10px;
             font-weight: 500;
             padding: 6px;
-            border: 1px solid rgba(255, 170, 0, 0.2);
+            border: 1px solid rgba(255, 170, 0, 0.4);
             border-radius: 5px;
             display: block;
             margin: 4px auto 6px auto;
@@ -888,8 +905,8 @@
             transition: background 0.2s, border-color 0.2s;
         }
         .undo-btn:hover {
-            background: rgba(255, 170, 0, 0.1);
-            border-color: rgba(255, 170, 0, 0.4);
+            background: rgba(30, 20, 4, 0.92);
+            border-color: rgba(255, 170, 0, 0.6);
         }
 
         .undo-request-banner {
