@@ -121,16 +121,47 @@
         }
 
         .targeting-status { 
-            background: linear-gradient(135deg, #ffaa00 0%, #cc8800 100%); 
-            color: #000; 
+            background: rgba(255, 170, 0, 0.1); 
+            color: #ffcc66; 
             text-align: center; 
-            font-weight: 600; 
-            padding: 8px; 
-            font-size: 11px; 
+            font-weight: 500; 
+            padding: 6px 10px; 
+            font-size: 10px; 
+            border: 1px solid rgba(255, 170, 0, 0.25); 
             border-radius: 6px; 
-            margin-bottom: 12px; 
+            margin-bottom: 10px; 
             display: none; 
-            box-shadow: 0 4px 20px rgba(255, 170, 0, 0.15);
+            letter-spacing: 0.02em;
+        }
+
+        .action-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .action-bar .targeting-status,
+        .action-bar .btn.cancel-btn,
+        .action-bar .undo-btn,
+        .action-bar .turn-display {
+            margin-bottom: 0;
+        }
+        .action-bar .turn-display {
+            flex: 0 0 auto;
+            text-align: left;
+            white-space: nowrap;
+            font-size: 11px;
+        }
+        .action-bar .targeting-status {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .action-bar .btn.cancel-btn,
+        .action-bar .undo-btn {
+            flex: 0 0 auto;
+            width: auto;
+            white-space: nowrap;
+            margin: 0;
         }
         
         .squad-title { 
@@ -612,17 +643,19 @@
         }
         
         .btn.cancel-btn { 
-            background: rgba(255, 255, 255, 0.05); 
-            color: #e8e0c9; 
+            background: transparent; 
+            color: #8a8f98; 
             border: 1px solid rgba(255, 255, 255, 0.08);
-            margin-bottom: 12px; 
+            margin-bottom: 10px; 
             width: 100%; 
-            padding: 8px; 
-            font-size: 11px; 
-            border-radius: 6px;
+            padding: 6px; 
+            font-size: 10px; 
+            font-weight: 500;
+            border-radius: 5px;
         }
         .btn.cancel-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.06);
+            color: #e8e0c9;
             border-color: rgba(255, 255, 255, 0.2);
         }
 
@@ -786,24 +819,23 @@
         }
 
         .undo-btn {
-            background: rgba(255, 170, 0, 0.1);
+            background: transparent;
             color: #ffaa00;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 8px;
-            border: 1px solid rgba(255, 170, 0, 0.25);
-            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 500;
+            padding: 6px;
+            border: 1px solid rgba(255, 170, 0, 0.2);
+            border-radius: 5px;
             display: block;
-            margin: 4px auto 8px auto;
+            margin: 4px auto 6px auto;
             width: 100%;
-            text-transform: uppercase;
             cursor: pointer;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.02em;
             transition: background 0.2s, border-color 0.2s;
         }
         .undo-btn:hover {
-            background: rgba(255, 170, 0, 0.2);
-            border-color: rgba(255, 170, 0, 0.45);
+            background: rgba(255, 170, 0, 0.1);
+            border-color: rgba(255, 170, 0, 0.4);
         }
 
         .undo-request-banner {
@@ -1987,13 +2019,12 @@
     <div id="gameView" style="display: none;" class="game-view-centered">
         <button class="back-fab-btn" onclick="blConfirmBackFromMatch()" title="Back">←</button>
         <div id="battleFlipWrap">
-        <h1 class="wordmark"><span>g</span><span>r</span><span>i</span><span>m</span><span>o</span><span>i</span><span>r</span><span>e</span></h1>
+        <div class="action-bar" id="actionBar">
         <div class="turn-display" id="turnIndicator"></div>
-        
         <div class="targeting-status" id="targetBar"></div>
-        <button id="cancelActionBtn" class="btn cancel-btn" style="display:none;" onclick="abortTargetingSequence()">❌ ABORT ADVANCED MANEUVER</button>
-
+        <button id="cancelActionBtn" class="btn cancel-btn" style="display:none;" onclick="abortTargetingSequence()">✕ Cancel</button>
         <button id="undoButton" class="undo-btn" style="display:none;" onclick="handleUndoButtonClick()"></button>
+        </div>
         <div id="undoRequestBanner" class="undo-request-banner" style="display:none;">
             <div class="undo-request-banner-text" id="undoRequestText">↩️ Your opponent wants to undo their last move.</div>
             <div class="undo-request-actions">
@@ -9838,12 +9869,12 @@ function renderUndoUI() {
     banner.style.display = 'none';
     if (undoState.waitingForSync) {
         btn.style.display = 'block';
-        btn.innerText = '⏳ Syncing board...';
+        btn.innerText = '⏳ Syncing...';
         return;
     }
     if (undoState.awaitingResponse) {
         btn.style.display = 'block';
-        btn.innerText = '⏳ Cancel undo request';
+        btn.innerText = '⏳ Cancel Request';
         return;
     }
     let canOfferUndo = mp.isMultiplayer
@@ -9851,7 +9882,7 @@ function renderUndoUI() {
         : !!undoState.snapshot;
     if (canOfferUndo) {
         btn.style.display = 'block';
-        btn.innerText = mp.isMultiplayer ? '↩️ Request Undo' : '↩️ Undo Last Move';
+        btn.innerText = mp.isMultiplayer ? '↩️ Request Undo' : '↩️ Undo';
     } else {
         btn.style.display = 'none';
     }
