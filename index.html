@@ -232,18 +232,18 @@
         
         .card.active-turn { 
             border-color: rgba(255, 51, 51, 0.6); 
-            box-shadow: 0 0 20px rgba(255, 51, 51, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
+            box-shadow: inset 0 0 20px rgba(255, 51, 51, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
         
         .card.valid-target { 
             border-color: rgba(0, 255, 0, 0.5); 
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
+            box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
         
         /* Opponent-card targeting uses gold instead of the ally-selection green. */
         .card.valid-target-enemy { 
             border-color: rgba(255, 191, 0, 0.55); 
-            box-shadow: 0 0 20px rgba(255, 191, 0, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
+            box-shadow: inset 0 0 20px rgba(255, 191, 0, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
 
         /* While a card is an eligible attack target, the CHOOSE button gets
@@ -256,7 +256,7 @@
         
         .card.selected-first { 
             border-color: rgba(51, 204, 255, 0.6); 
-            box-shadow: 0 0 20px rgba(51, 204, 255, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
+            box-shadow: inset 0 0 20px rgba(51, 204, 255, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.1); 
         }
         
         /* Used to be opacity: 0.18 on the whole card, which faded its
@@ -268,7 +268,7 @@
            it stays legible while still reading as clearly deceased. */
         .card.dead { 
             opacity: 1; 
-            background: linear-gradient(180deg, #1b1c21 0%, #0d0e12 100%); 
+            background: rgba(20, 20, 24, 0.15); 
             border-color: rgba(255, 255, 255, 0.06); 
             filter: grayscale(100%);
         }
@@ -286,7 +286,7 @@
             opacity: 0.85;
             filter: grayscale(40%);
             border-color: rgba(0, 255, 0, 0.75);
-            box-shadow: 0 0 26px rgba(0, 255, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            box-shadow: inset 0 0 26px rgba(0, 255, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.1);
         }
         
         .card.dead.valid-target .card-title,
@@ -300,14 +300,14 @@
         }
         
         @keyframes revivePulse {
-            0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 0, 0.4); transform: scale(1); }
-            50% { box-shadow: 0 0 18px rgba(0, 255, 0, 0.9); transform: scale(1.05); }
+            0%, 100% { box-shadow: inset 0 0 8px rgba(0, 255, 0, 0.4); transform: scale(1); }
+            50% { box-shadow: inset 0 0 18px rgba(0, 255, 0, 0.9); transform: scale(1.05); }
         }
         
         .card.imprisoned { 
             border-color: rgba(255, 170, 0, 0.3); 
             background: linear-gradient(180deg, rgba(38, 28, 12, 0.3) 0%, rgba(20, 15, 8, 0.15) 100%); 
-            box-shadow: 0 0 15px rgba(255, 170, 0, 0.05); 
+            box-shadow: inset 0 0 15px rgba(255, 170, 0, 0.05); 
             opacity: 0.50; 
         }
         
@@ -331,7 +331,7 @@
         .card-skin-voidstatic {
             border-color: rgba(150, 60, 255, 0.55);
             background: linear-gradient(160deg, #1c1230 0%, #0c1e24 100%);
-            box-shadow: 0 0 14px rgba(0,220,220,0.12), inset 0 1px 1px rgba(180,120,255,0.26);
+            box-shadow: inset 0 0 14px rgba(0,220,220,0.12), inset 0 1px 1px rgba(180,120,255,0.26);
         }
         .card-skin-gildedverdict {
             border-color: rgba(212, 175, 55, 0.65);
@@ -341,78 +341,78 @@
         .card-skin-bloodbanesigil {
             border-color: rgba(120, 0, 10, 0.7);
             background: linear-gradient(180deg, #0c0c10 0%, #150d13 100%);
-            box-shadow: 0 0 12px rgba(150,0,10,0.17), inset 0 1px 1px rgba(255,60,60,0.18);
+            box-shadow: inset 0 0 12px rgba(150,0,10,0.17), inset 0 1px 1px rgba(255,60,60,0.18);
         }
         .card-skin-bloodbornecircuit {
             border-color: rgba(60, 160, 170, 0.55);
             background: linear-gradient(180deg, #12161c 0%, #0e0f14 100%);
-            box-shadow: 0 0 12px rgba(60,200,210,0.11), inset 0 1px 1px rgba(180,220,220,0.21);
+            box-shadow: inset 0 0 12px rgba(60,200,210,0.11), inset 0 1px 1px rgba(180,220,220,0.21);
         }
         .card-skin-sacredember {
             border-color: rgba(255, 235, 200, 0.6);
             background: linear-gradient(180deg, #2a2a2c 0%, #191819 100%);
-            box-shadow: 0 0 16px rgba(255,220,150,0.17), inset 0 1px 1px rgba(255,255,255,0.36);
+            box-shadow: inset 0 0 16px rgba(255,220,150,0.17), inset 0 1px 1px rgba(255,255,255,0.36);
         }
         .card-skin-widowsink {
             border-color: rgba(90, 20, 110, 0.6);
             background: linear-gradient(180deg, #130d19 0%, #0d0d13 100%);
-            box-shadow: 0 0 12px rgba(110,20,140,0.12), inset 0 1px 1px rgba(200,160,220,0.18);
+            box-shadow: inset 0 0 12px rgba(110,20,140,0.12), inset 0 1px 1px rgba(200,160,220,0.18);
         }
         .card-skin-executionersmark {
             border-color: rgba(255, 100, 20, 0.6);
             background: linear-gradient(180deg, #0c0c0f 0%, #1a1113 100%);
-            box-shadow: 0 0 12px rgba(255,110,20,0.13), inset 0 1px 1px rgba(255,150,60,0.21);
+            box-shadow: inset 0 0 12px rgba(255,110,20,0.13), inset 0 1px 1px rgba(255,150,60,0.21);
             clip-path: polygon(6% 0, 100% 0, 100% 94%, 94% 100%, 0 100%, 0 6%);
         }
         .card-skin-emberwraith {
             border-color: rgba(255, 90, 20, 0.6);
             background: linear-gradient(180deg, #261312 0%, #1c1415 100%);
-            box-shadow: 0 0 14px rgba(255,100,20,0.17), inset 0 1px 1px rgba(255,180,100,0.21);
+            box-shadow: inset 0 0 14px rgba(255,100,20,0.17), inset 0 1px 1px rgba(255,180,100,0.21);
         }
         .card-skin-glacialomen {
             border-color: rgba(150, 220, 255, 0.6);
             background: linear-gradient(180deg, #1f2b35 0%, #17181d 100%);
-            box-shadow: 0 0 14px rgba(150,220,255,0.17), inset 0 1px 1px rgba(220,250,255,0.31);
+            box-shadow: inset 0 0 14px rgba(150,220,255,0.17), inset 0 1px 1px rgba(220,250,255,0.31);
         }
         .card-skin-verdantthorn {
             border-color: rgba(60, 160, 80, 0.55);
             background: linear-gradient(180deg, #0f1816 0%, #101617 100%);
-            box-shadow: 0 0 12px rgba(60,160,80,0.13), inset 0 1px 1px rgba(140,220,150,0.21);
+            box-shadow: inset 0 0 12px rgba(60,160,80,0.13), inset 0 1px 1px rgba(140,220,150,0.21);
         }
         .card-skin-royalamethyst {
             border-color: rgba(160, 100, 220, 0.6);
             background: linear-gradient(180deg, #1b142b 0%, #191816 100%);
-            box-shadow: 0 0 16px rgba(160,100,220,0.17), inset 0 1px 1px rgba(230,200,255,0.26);
+            box-shadow: inset 0 0 16px rgba(160,100,220,0.17), inset 0 1px 1px rgba(230,200,255,0.26);
         }
         .card-skin-stormherald {
             border-color: rgba(120, 170, 255, 0.6);
             background: linear-gradient(160deg, #121728 0%, #171a22 100%);
-            box-shadow: 0 0 14px rgba(120,170,255,0.17), inset 0 1px 1px rgba(200,220,255,0.26);
+            box-shadow: inset 0 0 14px rgba(120,170,255,0.17), inset 0 1px 1px rgba(200,220,255,0.26);
         }
         .card-skin-plaguedoctor {
             border-color: rgba(120, 160, 80, 0.55);
             background: linear-gradient(180deg, #121412 0%, #131616 100%);
-            box-shadow: 0 0 12px rgba(120,160,80,0.12), inset 0 1px 1px rgba(180,200,120,0.18);
+            box-shadow: inset 0 0 12px rgba(120,160,80,0.12), inset 0 1px 1px rgba(180,200,120,0.18);
         }
         .card-skin-solarflare {
             border-color: rgba(255, 190, 40, 0.6);
             background: linear-gradient(180deg, #342a17 0%, #1c1314 100%);
-            box-shadow: 0 0 16px rgba(255,190,40,0.19), inset 0 1px 1px rgba(255,230,150,0.31);
+            box-shadow: inset 0 0 16px rgba(255,190,40,0.19), inset 0 1px 1px rgba(255,230,150,0.31);
         }
         .card-skin-abyssalink {
             border-color: rgba(20, 30, 70, 0.65);
             background: linear-gradient(180deg, #0a0c14 0%, #0e1019 100%);
-            box-shadow: 0 0 12px rgba(20,40,100,0.17), inset 0 1px 1px rgba(80,100,160,0.21);
+            box-shadow: inset 0 0 12px rgba(20,40,100,0.17), inset 0 1px 1px rgba(80,100,160,0.21);
         }
         .card-skin-thornsteel {
             border-color: rgba(140, 30, 40, 0.55);
             background: linear-gradient(180deg, #15161c 0%, #140e14 100%);
-            box-shadow: 0 0 12px rgba(140,30,40,0.13), inset 0 1px 1px rgba(200,200,205,0.21);
+            box-shadow: inset 0 0 12px rgba(140,30,40,0.13), inset 0 1px 1px rgba(200,200,205,0.21);
         }
         .card-skin-phantomveil {
             border-color: rgba(220, 220, 230, 0.45);
             background: linear-gradient(180deg, #1c1c22 0%, #0f1016 100%);
-            box-shadow: 0 0 14px rgba(220,220,230,0.09), inset 0 1px 1px rgba(255,255,255,0.21);
+            box-shadow: inset 0 0 14px rgba(220,220,230,0.09), inset 0 1px 1px rgba(255,255,255,0.21);
         }
 
         /* Cosmetic picker previews — card skin rows in the Skins modal reuse
@@ -1080,6 +1080,14 @@
             line-height: 1;
             margin-top: 2px;
             filter: drop-shadow(0 0 3px rgba(0, 255, 120, 0.55));
+        }
+
+        .imprisoned-badge {
+            display: inline-block;
+            font-size: 8px;
+            line-height: 1;
+            margin-top: 2px;
+            filter: drop-shadow(0 0 3px rgba(255, 170, 0, 0.55));
         }
 
         /* Small corner-icon status badge shown when a card's attack option
@@ -11438,6 +11446,7 @@ function renderScene() {
                 ${card.poisoned ? `<span class="poison-badge">☣️</span>` : ''}
                 <div class="hex-row">
                     ${gameState.p1KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
+                    ${card.imprisoned ? `<span class="imprisoned-badge" title="Imprisoned — cannot act or be targeted">🚨</span>` : ''}
                     <div class="hearts">${heartsDisplay}</div>
                     ${doctorCleanseBtn}
                 </div>
@@ -11572,6 +11581,7 @@ function renderScene() {
                 ${card.blockedCounter > 0 ? `<span class="blocked-badge">🔒${card.blockedCounter-1}</span>` : ''}
                 <div class="hex-row">
                     ${gameState.p2KnightShields > 0 && !isDead ? `<span class="shield-badge" title="K-Shield active — cannot be killed or imprisoned">🛡️</span>` : ''}
+                    ${card.imprisoned ? `<span class="imprisoned-badge" title="Imprisoned — cannot act or be targeted">🚨</span>` : ''}
                     <div class="hearts">${card.name === 'Spy' && !isDead ? '⬡ ∞' : (isDead ? '☠️ DEAD' : '⬡'.repeat(card.hex))}</div>
                 </div>
                 ${isEligibleEnemy ? `<button class="btn target-btn enemy-target-btn" onclick="processSelectedTarget('${card.id}')">CHOOSE</button>` : ''}
